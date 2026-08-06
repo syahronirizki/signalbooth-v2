@@ -6,6 +6,11 @@ reads a signal, paints a live effect over the video feed, and doubles as
 a photobooth you can capture and keep a strip of shots from. No server,
 no database: everything is static files plus `localStorage`.
 
+Throw a ✌️ and the lens goes soft. A 👍 brings confetti and a combo
+counter. A 👌 puts a thinking pad on screen insisting *"its im fine,
+gwenchana!"* And 🫶 rains hearts in every color while **I LOVE U** rises
+across the frame.
+
 ## How it actually works
 
 Real-time hand tracking has to run in JavaScript/WebAssembly — that's the
@@ -23,11 +28,36 @@ Concretely: `handTracker.js` calls `window.__sbFrameCallback` once per
 video frame with a plain object — hand landmarks and MediaPipe's
 classified gesture. Python (`py/main.py`) receives that, decides what it
 means, draws the result to the canvas, and updates the page. Everything
-downstream of "here are some hand landmarks" is Python, including a
-custom pinch-gesture detector (MediaPipe's built-in classifier doesn't
-include pinch) computed from raw landmark geometry.
+downstream of "here are some hand landmarks" is Python, including the
+gestures MediaPipe *doesn't* know — the OK sign 👌, the Korean finger
+heart 🫰, and the two-handed heart 🫶 — all computed from raw landmark
+geometry.
 
-Nothing is stubbed — this is a working first version, not a mockup.
+Nothing is stubbed — this is a working app, not a mockup.
+
+### Signals, effects, and moments
+
+Three ideas carry the interaction, and they're worth knowing before
+reading the code:
+
+**Signals** are the app's gesture vocabulary. `py/gestures.py` merges
+MediaPipe's classes with its own detectors into one canonical name —
+`peace`, `ok`, `finger_heart`, `heart_hands`, `double_palm` — so nothing
+downstream has to care which of the two produced a pose. Signals are
+debounced over a few frames, so one flickery frame can't fire anything.
+
+**Effects** are persistent. A gesture switches to one and it stays until
+something switches away, so you can set a look and then move freely.
+They're also selectable by hand from the chip dock at the bottom.
+
+**Moments** are momentary. They play while their gesture is held — plus a
+short tail so they don't cut off the instant tracking blinks — and then
+they're gone. The thinking pad, the love rain, and the portal are moments.
+
+Two of the effects also filter the webcam frame itself (a canvas `filter`,
+not a translucent rectangle painted on top), with the amount eased frame
+to frame so the blur reads as a lens racking focus rather than a dropped
+frame.
 
 ## Tech stack
 
@@ -48,8 +78,8 @@ signalbooth/
 │   └── handTracker.js    webcam + MediaPipe GestureRecognizer only
 └── py/
     ├── main.py           entry point — wiring, event handlers, render loop
-    ├── gestures.py        landmark geometry, debouncing, pinch detection
-    ├── effects.py          the VFX: aura glow, spark burst, trails, idle state
+    ├── gestures.py        landmark geometry, debouncing, custom detectors
+    ├── effects.py          the VFX: every effect and moment, plus the safe box
     ├── photobooth.py       countdown, capture, gallery DOM
     └── storage.py           localStorage read/write for settings + gallery
 ```
@@ -82,17 +112,45 @@ the delegate in `js/handTracker.js` can be switched from `"GPU"` to
 
 ## Gesture guide
 
+Effects — a gesture switches to one, and it stays:
+
 | Gesture | Effect |
 |---|---|
-| ✋ Open palm | Aura Glow — a soft radial glow around your hand |
-| ✊ Closed fist | Spark Burst — particles erupt from your fist |
-| ☝️ Point up | Laser Trail — a comet tail follows your fingertip |
-| 👍 Thumbs up | Rainbow Trail — the same trail, hue-cycled |
-| 🤏 Pinch (thumb + index) | Cycles the color theme (neon → sunset → ocean → mono) |
-| ✌️ Peace sign | Triggers the photobooth countdown |
+| ✌️ Peace sign | **Soft Focus** — the webcam itself goes blurry, with drifting bokeh and a focus-hunting bracket over your hand |
+| 👍 Thumbs up | **Hype** — 👍 bubbles stream up off your thumb, confetti falls, and a combo counter climbs the longer you hold it |
+| 👎 Thumbs down | **Rain Mood** — the frame desaturates and it starts raining on you specifically, cloud included |
+| ✋ Open palm | **Aura Glow** — a soft radial glow, breathing, centered on your hand |
+| ✊ Closed fist | **Spark Burst** — particles erupt from your fist |
+| ☝️ Point up | **Laser Trail** — a comet tail follows your fingertip |
+| 🌈 (dock only) | **Rainbow** — the trail, hue-cycled |
 
-Effects can also be switched manually from the chip dock at the bottom
-of the screen — gestures aren't the only way in.
+Moments — these play while you hold them, then they're gone:
+
+| Gesture | Moment |
+|---|---|
+| 👌 OK sign | A thinking pad types itself out: *"its im fine, gwenchana!"* |
+| 🫶 Heart hands (two hands) | **I LOVE U** rises across the frame while hearts rain down in every color |
+| 🫰 Finger heart | **Love Beam** — hearts pour out of your fingertips through a pink bloom |
+| 🤟 I-love-you sign | **Star Shower** |
+| ✋✋ Both palms open | A **portal** opens between your hands |
+
+Taking a photo:
+
+| Action | What happens |
+|---|---|
+| Hold ✋ still for ~1.8s | Fires the shutter, hands-free. A ring fills while you hold, so the wait has feedback. Turn it off in Settings. |
+| The shutter button | Same countdown, no gesture needed |
+| <kbd>space</kbd> | Same again |
+
+> **Moved in this version:** ✌️ used to take the photo. It drives Soft
+> Focus now, and the shutter moved to the palm-hold above. Theme cycling
+> used to be a pinch; a pinch now reads as 👌 or 🫰, so themes moved to the
+> swatch button next to **Strip**.
+
+Effects can also be switched by hand from the chip dock at the bottom of
+the screen — gestures aren't the only way in. Keyboard: <kbd>space</kbd>
+shoot, <kbd>T</kbd> theme, <kbd>M</kbd> mirror, <kbd>1</kbd>–<kbd>8</kbd>
+effects.
 
 ## Design
 
@@ -111,37 +169,66 @@ shows up as:
 - `Fraunces` for display type, `JetBrains Mono` for anything "live" or
   technical (readouts, gesture labels), `Inter` for everything else
 
+Two details that took more care than they look like they did:
+
+- **Text on a mirrored canvas.** The stage is flipped with a CSS
+  `scaleX(-1)` in mirror view, so anything readable — every label, the
+  thinking pad — would render backwards. `_text()` in `py/effects.py`
+  flips it back locally; use that rather than `ctx.fillText`.
+- **The safe box.** The canvas is displayed with `object-fit: cover`, so a
+  16:9 camera in a portrait window loses most of its *width* — on a phone
+  only the middle third is ever on screen. Particles can spill outside
+  that harmlessly, but anything you're meant to read is placed and sized
+  against `set_safe_box()`, not against the canvas.
+
 ## Customizing
 
 - **Add or change an effect:** write a `draw_*` function in `py/effects.py`,
   add an entry to `EFFECT_ORDER` / `EFFECT_META` in `py/main.py`, and
-  optionally map it to a gesture via `GESTURE_TO_EFFECT`.
+  optionally bind it to a signal via that entry's `"signal"` key.
+- **Add a moment:** same, but add it to `MOMENT_SECONDS` in `py/main.py`
+  (the value is how long it keeps playing after the gesture stops being
+  seen) and draw it in the moment block of `on_frame`.
 - **Add a gesture:** MediaPipe's `GestureRecognizer` classifies
   `Open_Palm`, `Closed_Fist`, `Pointing_Up`, `Thumb_Up`, `Thumb_Down`,
-  `Victory`, `ILoveYou`, and `None` out of the box — any of those not
-  already mapped in `main.py` are free to wire up. For a gesture outside
-  that set (like the pinch), compute it from landmark geometry in
-  `py/gestures.py`, the way `PINCH_ENTER`/`PINCH_EXIT` do.
+  `Victory`, `ILoveYou`, and `None` out of the box; `MP_TO_SIGNAL` in
+  `py/gestures.py` maps those onto signals. For anything outside that set,
+  compute it from landmark geometry in `_resolve_signal()` — 👌 and 🫰 are
+  the worked example, and they're told apart purely by whether the last
+  three fingers are extended. `_finger_states()` gives you that,
+  orientation-free.
+- **Filter the webcam frame:** add an amount to `filter_amounts` in
+  `py/main.py`, give it a target in `_filter_targets()`, and render it in
+  `video_filter()`. It eases automatically.
 - **Color themes:** edit `THEMES` in `py/effects.py`.
-- **Particle budget / performance:** `MAX_SPARK_PARTICLES` in
-  `py/effects.py` is the main knob if a device struggles.
+- **Particle budget / performance:** the `MAX_*` caps at the top of
+  `py/effects.py` are the main knobs if a device struggles.
 
 ## Known constraints
 
 - Needs an internet connection on first load (CDN-hosted runtime + model);
-  it isn't a fully offline app in this v1.
+  it isn't a fully offline app.
 - `localStorage` has a browser-enforced size limit (usually 5–10MB), so
   the gallery caps itself at the 24 most recent shots and drops older
   ones if storage fills up — see `MAX_GALLERY_ITEMS` in `py/storage.py`.
-- Single primary hand drives gesture effects even though two hands are
-  tracked — see Roadmap.
+- The webcam filters (Soft Focus, Rain Mood) use the canvas `filter`
+  property. It's supported in current Chrome, Edge, Firefox and Safari 17+;
+  on anything older those two effects lose their tint and keep only their
+  overlay.
+- Two hands are tracked and 🫶 / ✋✋ use both, but the single-hand effects
+  follow the first hand MediaPipe reports.
+- Effects are modes: Soft Focus stays blurred and Rain Mood stays gray
+  after you lower your hand, until another gesture or the Idle chip
+  switches away. That's deliberate — it's what makes them usable as a look
+  rather than a flash.
 
 ## Roadmap ideas
 
-- Two-hand combo gestures (both hands open → a bigger, shared effect)
+- More two-hand combos (the portal is the first one)
 - Face landmarking for filters that aren't hand-anchored
 - A "burst mode" (3 photos in a row, composited into one strip image)
 - Recording short clips instead of stills
+- Sound: a shutter tick and a rising tone under the hype combo
 - Swap the Pyodide interpreter for PyScript's MicroPython runtime
   (`type="mpy"`) for a lighter, faster-starting build, once a given
   effect's needs are confirmed to fit MicroPython's smaller standard
