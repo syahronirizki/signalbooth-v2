@@ -1,0 +1,13 @@
+# Signalbooth — PyScript configuration
+#
+# This just maps local Python files onto PyScript's in-browser virtual
+# filesystem so py/main.py can `import gestures`, `import effects`, etc.
+# like any normal local package. No PyPI packages are declared because
+# everything used here (math, json, random, time, asyncio) ships in the
+# standard library that Pyodide already includes.
+
+[files]
+"./py/gestures.py" = "./gestures.py"
+"./py/effects.py" = "./effects.py"
+"./py/photobooth.py" = "./photobooth.py"
+"./py/storage.py" = "./storage.py"

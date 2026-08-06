@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>Signalbooth — Gesture VFX Camera</title>
+<meta name="description" content="A gesture-controlled visual effects camera and photobooth. Runs entirely in your browser — no server, no database." />
+
+<!-- PyScript: runs the Python application layer in-browser -->
+<link rel="stylesheet" href="https://pyscript.net/releases/2026.7.2/core.css" />
+<script type="module" src="https://pyscript.net/releases/2026.7.2/core.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450;0,9..144,600;0,9..144,700;1,9..144,500&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap"
+  rel="stylesheet"
+/>
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Boot / power-on sequence -->
+  <div id="boot-screen" class="boot-screen">
+    <div class="boot-dial" aria-hidden="true">
+      <svg viewBox="0 0 120 120">
+        <circle class="boot-dial__track" cx="60" cy="60" r="52" />
+        <circle class="boot-dial__sweep" cx="60" cy="60" r="52" />
+      </svg>
+    </div>
+    <p class="boot-word">SIGNAL<span>BOOTH</span></p>
+    <p class="boot-status" id="boot-status">warming up…</p>
+  </div>
+
+  <!-- Camera / permission error -->
+  <div id="error-screen" class="error-screen hidden">
+    <p class="error-title">Camera unavailable</p>
+    <p class="error-message" id="error-message"></p>
+  </div>
+
+  <!-- Onboarding: gesture legend -->
+  <div id="onboarding" class="onboarding hidden">
+    <div class="onboarding-card">
+      <p class="onboarding-eyebrow">How to play it</p>
+      <h1 class="onboarding-title">Signalbooth reads your hand<br />like an instrument.</h1>
+      <ul class="gesture-legend">
+        <li><span class="gesture-legend__icon">✋</span><div><strong>Open palm</strong><span>Aura glow</span></div></li>
+        <li><span class="gesture-legend__icon">✊</span><div><strong>Closed fist</strong><span>Spark burst</span></div></li>
+        <li><span class="gesture-legend__icon">☝️</span><div><strong>Point up</strong><span>Laser trail</span></div></li>
+        <li><span class="gesture-legend__icon">👍</span><div><strong>Thumbs up</strong><span>Rainbow trail</span></div></li>
+        <li><span class="gesture-legend__icon">🤏</span><div><strong>Pinch</strong><span>Cycle color</span></div></li>
+        <li><span class="gesture-legend__icon">✌️</span><div><strong>Peace sign</strong><span>Take a photo</span></div></li>
+      </ul>
+      <button id="onboarding-dismiss" class="btn-brass">Got it — start</button>
+    </div>
+  </div>
+
+  <main class="stage-wrap">
+    <header class="app-header">
+      <p class="wordmark">Signal<span>booth</span></p>
+      <button id="help-btn" class="icon-btn" aria-label="Show gesture guide">?</button>
+    </header>
+
+    <div class="viewport-bezel">
+      <video id="camera-feed" autoplay playsinline muted></video>
+      <canvas id="stage"></canvas>
+
+      <div class="readout" id="readout">
+        <svg class="readout-dial" viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="readout-dial__ring" cx="32" cy="32" r="27" />
+          <circle class="readout-dial__pulse" cx="32" cy="32" r="27" />
+        </svg>
+        <span class="readout-label" id="gesture-label">NO SIGNAL</span>
+      </div>
+
+      <div class="countdown hidden" id="countdown"></div>
+      <div class="flash" id="flash"></div>
+    </div>
+
+    <div class="console">
+      <div class="console-group" id="effect-dock" aria-label="Effects"></div>
+
+      <button id="capture-btn" class="capture-btn" aria-label="Capture photo">
+        <span class="capture-btn__ring"></span>
+      </button>
+
+      <div class="console-group console-group--right">
+        <button id="gallery-btn" class="icon-btn icon-btn--wide" aria-label="Open your photo strip">Strip</button>
+        <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+      </div>
+    </div>
+  </main>
+
+  <aside id="gallery-drawer" class="drawer hidden" aria-label="Photo strip">
+    <div class="drawer-head">
+      <h2>Your strip</h2>
+      <button id="gallery-close" class="icon-btn" aria-label="Close">×</button>
+    </div>
+    <div class="drawer-body drawer-body--strip" id="gallery-grid"></div>
+    <button id="gallery-clear" class="text-btn">Clear all</button>
+  </aside>
+
+  <aside id="settings-drawer" class="drawer hidden" aria-label="Settings">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button id="settings-close" class="icon-btn" aria-label="Close">×</button>
+    </div>
+    <div class="drawer-body">
+      <label class="toggle-row">
+        <span>Mirror view</span>
+        <input type="checkbox" id="mirror-toggle" checked />
+      </label>
+      <label class="toggle-row">
+        <span>Show hand skeleton</span>
+        <input type="checkbox" id="skeleton-toggle" />
+      </label>
+      <label class="slider-row">
+        <span>Effect intensity</span>
+        <input type="range" id="intensity-slider" min="0.4" max="1.6" step="0.1" value="1" />
+      </label>
+    </div>
+  </aside>
+
+  <!-- JS layer: owns the camera + the ML hand/gesture model only -->
+  <script type="module" src="js/handTracker.js"></script>
+
+  <!-- Python layer: owns gestures, VFX, DOM, photobooth, localStorage -->
+  <script type="py" src="py/main.py" config="pyscript.toml"></script>
+
+</body>
+</html>
