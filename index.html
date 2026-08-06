@@ -45,13 +45,20 @@
       <p class="onboarding-eyebrow">How to play it</p>
       <h1 class="onboarding-title">Signalbooth reads your hand<br />like an instrument.</h1>
       <ul class="gesture-legend">
+        <li><span class="gesture-legend__icon">✌️</span><div><strong>Peace sign</strong><span>Soft focus — the lens blurs</span></div></li>
+        <li><span class="gesture-legend__icon">👍</span><div><strong>Thumbs up</strong><span>Hype — likes, confetti, combo</span></div></li>
+        <li><span class="gesture-legend__icon">👌</span><div><strong>OK sign</strong><span>“its im fine, gwenchana!”</span></div></li>
+        <li><span class="gesture-legend__icon">🫶</span><div><strong>Heart hands</strong><span>I love u + heart rain</span></div></li>
+        <li><span class="gesture-legend__icon">🫰</span><div><strong>Finger heart</strong><span>Love beam</span></div></li>
+        <li><span class="gesture-legend__icon">👎</span><div><strong>Thumbs down</strong><span>Rain mood</span></div></li>
+        <li><span class="gesture-legend__icon">🤟</span><div><strong>I-love-you sign</strong><span>Star shower</span></div></li>
         <li><span class="gesture-legend__icon">✋</span><div><strong>Open palm</strong><span>Aura glow</span></div></li>
         <li><span class="gesture-legend__icon">✊</span><div><strong>Closed fist</strong><span>Spark burst</span></div></li>
         <li><span class="gesture-legend__icon">☝️</span><div><strong>Point up</strong><span>Laser trail</span></div></li>
-        <li><span class="gesture-legend__icon">👍</span><div><strong>Thumbs up</strong><span>Rainbow trail</span></div></li>
-        <li><span class="gesture-legend__icon">🤏</span><div><strong>Pinch</strong><span>Cycle color</span></div></li>
-        <li><span class="gesture-legend__icon">✌️</span><div><strong>Peace sign</strong><span>Take a photo</span></div></li>
+        <li><span class="gesture-legend__icon">🙌</span><div><strong>Both palms</strong><span>Portal between hands</span></div></li>
+        <li><span class="gesture-legend__icon">📸</span><div><strong>Hold ✋ still</strong><span>Fires the shutter</span></div></li>
       </ul>
+      <p class="onboarding-note">Keys: <kbd>space</kbd> shoot · <kbd>T</kbd> theme · <kbd>M</kbd> mirror · <kbd>1</kbd>–<kbd>8</kbd> effects</p>
       <button id="onboarding-dismiss" class="btn-brass">Got it — start</button>
     </div>
   </div>
@@ -76,6 +83,7 @@
 
       <div class="countdown hidden" id="countdown"></div>
       <div class="flash" id="flash"></div>
+      <p class="toast" id="toast" role="status" aria-live="polite"></p>
     </div>
 
     <div class="console">
@@ -86,6 +94,9 @@
       </button>
 
       <div class="console-group console-group--right">
+        <button id="theme-btn" class="icon-btn icon-btn--theme" data-theme="neon" aria-label="Cycle color theme">
+          <span class="theme-swatch" aria-hidden="true"></span>
+        </button>
         <button id="gallery-btn" class="icon-btn icon-btn--wide" aria-label="Open your photo strip">Strip</button>
         <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
       </div>
@@ -114,6 +125,10 @@
       <label class="toggle-row">
         <span>Show hand skeleton</span>
         <input type="checkbox" id="skeleton-toggle" />
+      </label>
+      <label class="toggle-row">
+        <span>Hold ✋ to shoot</span>
+        <input type="checkbox" id="palmhold-toggle" checked />
       </label>
       <label class="slider-row">
         <span>Effect intensity</span>

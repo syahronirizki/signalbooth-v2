@@ -175,8 +175,10 @@ button {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-panel);
   padding: 32px 28px;
-  max-width: 420px;
+  max-width: 460px;
   width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
 }
 
 .onboarding-eyebrow {
@@ -240,6 +242,23 @@ button {
   color: var(--ink-muted);
 }
 
+.onboarding-note {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.8;
+  color: var(--ink-muted);
+  margin: -12px 0 20px;
+}
+
+.onboarding-note kbd {
+  font-family: inherit;
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--bg-panel-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--ink);
+}
+
 /* =========================================================================
    Buttons
    ========================================================================= */
@@ -273,6 +292,28 @@ button {
 }
 .icon-btn:hover { border-color: var(--accent-violet-dim); }
 .icon-btn--wide { width: auto; padding: 0 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Theme dial — the pinch gesture used to cycle themes, but pinch now reads
+   as 👌 / 🫰, so the swatch took the job. It previews the palette it'll
+   switch to rather than just saying "theme". */
+
+.theme-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(251, 243, 227, 0.35);
+  background: linear-gradient(135deg, #e8a33d 0%, #e8a33d 50%, #8b7ff0 50%, #8b7ff0 100%);
+  transition: background 0.2s var(--ease);
+}
+.icon-btn--theme[data-theme="sunset"] .theme-swatch {
+  background: linear-gradient(135deg, #f2795c 0%, #f2795c 50%, #f4b860 50%, #f4b860 100%);
+}
+.icon-btn--theme[data-theme="ocean"] .theme-swatch {
+  background: linear-gradient(135deg, #5cc8f2 0%, #5cc8f2 50%, #8b7ff0 50%, #8b7ff0 100%);
+}
+.icon-btn--theme[data-theme="mono"] .theme-swatch {
+  background: linear-gradient(135deg, #ece6f2 0%, #ece6f2 50%, #9c93ad 50%, #9c93ad 100%);
+}
 
 .text-btn {
   align-self: center;
@@ -441,6 +482,40 @@ button {
 @keyframes flash-pop {
   0% { opacity: 0.9; }
   100% { opacity: 0; }
+}
+
+/* Toast — names whatever the last gesture actually did. The readout says
+   what your hand is; this says what the booth made of it. */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translate(-50%, 8px);
+  margin: 0;
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(21, 17, 26, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(232, 163, 61, 0.35);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--paper);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 7;
+}
+
+.toast--show { animation: toast-pop 2.1s var(--ease) forwards; }
+
+@keyframes toast-pop {
+  0%   { opacity: 0; transform: translate(-50%, 10px); }
+  12%  { opacity: 1; transform: translate(-50%, 0); }
+  78%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -6px); }
 }
 
 /* =========================================================================
@@ -686,5 +761,17 @@ input[type="range"] {
   .drawer,
   .flash-play {
     animation: none !important;
+  }
+
+  /* The toast still has to appear and then go away, so instead of killing
+     its animation it swaps to one that only fades — no movement. */
+  .toast--show {
+    animation: toast-fade 2.1s linear forwards !important;
+    transform: translate(-50%, 0);
+  }
+
+  @keyframes toast-fade {
+    0%, 100% { opacity: 0; }
+    12%, 78% { opacity: 1; }
   }
 }

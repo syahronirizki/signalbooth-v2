@@ -18,6 +18,7 @@ MAX_GALLERY_ITEMS = 24
 DEFAULT_SETTINGS = {
     "mirror": True,
     "show_skeleton": False,
+    "palm_shutter": True,  # hold ✋ still to fire the shutter, hands-free
     "intensity": 1.0,
     "last_effect": "idle",
     "theme_index": 0,
