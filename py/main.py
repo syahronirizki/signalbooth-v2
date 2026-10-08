@@ -389,6 +389,10 @@ def on_frame(frame_js):
         filter_amounts[key] = _ease(filter_amounts[key], target, dt)
     look = effects.video_filter(filter_amounts)
 
+    # A phone rotated mid-session turns its camera track sideways without a
+    # new loadeddata; follow the video's shape or every frame gets stretched.
+    if video.videoWidth and (video.videoWidth != canvas.width or video.videoHeight != canvas.height):
+        set_canvas_size(video.videoWidth, video.videoHeight)
     colors = effects.theme_colors(state["theme_index"])
     intensity = state["intensity"]
     w, h = canvas.width, canvas.height

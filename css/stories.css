@@ -334,7 +334,14 @@ body::before {
   filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.5));
 }
 
-.toast { bottom: calc(var(--edge-b) + 176px); }
+/* Fixed above the drawers (z 40) so a toast fired while one is open, like
+   "Couldn't share", is still seen; top-center keeps it clear of the dial. */
+.toast {
+  position: fixed;
+  top: calc(var(--edge-t) + 64px);
+  bottom: auto;
+  z-index: 45;
+}
 
 /* ---- bottom sheets (phones) ------------------------------------------ */
 

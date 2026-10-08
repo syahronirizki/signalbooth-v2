@@ -73,7 +73,7 @@ async function initSegmenter(vision) {
   }
 }
 
-async function startCamera(nextFacing) {
+async function startCamera(nextFacing, strict = false) {
   // Phones can't always hold two cameras open at once, so release the old
   // stream before asking for the new one.
   stream?.getTracks().forEach((track) => track.stop());
@@ -82,7 +82,9 @@ async function startCamera(nextFacing) {
   const portrait = matchMedia("(orientation: portrait)").matches;
   stream = await navigator.mediaDevices.getUserMedia({
     video: {
-      facingMode: nextFacing,
+      // A switch must really land on the other camera; a plain facingMode is
+      // only a preference and quietly hands back whatever camera exists.
+      facingMode: strict ? { exact: nextFacing } : nextFacing,
       width: { ideal: portrait ? 720 : 1280 },
       height: { ideal: portrait ? 1280 : 720 },
     },
@@ -95,7 +97,7 @@ async function startCamera(nextFacing) {
 window.__sbSetFacing = async (nextFacing) => {
   const previous = facing;
   try {
-    await startCamera(nextFacing);
+    await startCamera(nextFacing, true);
     return true;
   } catch (err) {
     console.error("Signalbooth: camera switch failed", err);
@@ -194,7 +196,9 @@ function updateMask(now) {
 function predictLoop() {
   if (!running) return;
 
-  if (video.currentTime !== lastVideoTime) {
+  // A new srcObject (camera switch) resets currentTime with no frame decoded
+  // yet; feeding that empty frame to MediaPipe breaks its graph for good.
+  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     const now = performance.now();
 

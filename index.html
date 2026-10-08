@@ -100,7 +100,6 @@
 
       <div class="countdown hidden" id="countdown"></div>
       <div class="flash" id="flash"></div>
-      <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
       <div class="hud-bottom" id="hud-bottom">
         <p class="active-label" id="active-label">Idle</p>
@@ -126,6 +125,11 @@
       </div>
     </div>
   </main>
+
+  <!-- Outside the stage: the stage goes inert under drawers, and toasts must still show. -->
+  <aside aria-label="Notifications">
+    <p class="toast" id="toast" role="status" aria-live="polite"></p>
+  </aside>
 
   <div id="scrim" class="scrim hidden"></div>
 

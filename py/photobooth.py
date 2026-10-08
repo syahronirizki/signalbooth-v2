@@ -130,6 +130,7 @@ def render_gallery():
 
 
 def open_viewer(photo_id):
+    disarm_all()
     item = next((p for p in storage.load_gallery() if p["id"] == photo_id), None)
     if item is None:
         return
@@ -150,6 +151,7 @@ def open_viewer(photo_id):
 def close_viewer(refocus=True):
     """Closes the viewer if it's open and returns whether it was. Focus goes
     back to the tile that opened it."""
+    disarm_all()
     viewer = document.getElementById("viewer")
     if viewer.classList.contains("hidden"):
         return False
@@ -214,6 +216,13 @@ def confirm_then(btn, prompt, action):
     btn.classList.add("is-armed")
     btn.textContent = prompt
     asyncio.ensure_future(_disarm_later(btn))
+
+
+def disarm_all():
+    """An armed Delete or Clear all must not survive a change of what it
+    points at — another photo, or a strip that's been closed and reopened."""
+    for el_id in ("viewer-delete", "gallery-clear"):
+        _disarm(document.getElementById(el_id))
 
 
 def _disarm(btn):
