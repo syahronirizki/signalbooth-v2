@@ -44,6 +44,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; /* pinch-zoom stays, double-tap zoom on the shutter goes */
 }
 
 button {
@@ -278,8 +279,8 @@ button {
 .btn-brass:active { transform: translateY(2px); box-shadow: 0 2px 0 #8a6420; }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   background: var(--bg-panel-raised);
   border: 1px solid var(--bg-panel-line);
@@ -291,7 +292,23 @@ button {
   transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
 }
 .icon-btn:hover { border-color: var(--accent-violet-dim); }
-.icon-btn--wide { width: auto; padding: 0 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.icon-btn--wide { width: auto; gap: 7px; padding: 0 14px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Shot count on the Strip button — a capture is visibly "kept" without
+   opening the drawer. */
+.count-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-brass);
+  color: #241a0a;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.count-badge:empty { display: none; }
 
 /* Theme dial — the pinch gesture used to cycle themes, but pinch now reads
    as 👌 / 🫰, so the swatch took the job. It previews the palette it'll
@@ -327,7 +344,8 @@ button {
   border-radius: 999px;
   border: 1px solid var(--bg-panel-line);
 }
-.text-btn:hover { color: var(--danger); border-color: var(--danger); }
+.text-btn:hover, .text-btn.is-armed { color: var(--danger); border-color: var(--danger); }
+.text-btn.is-armed { background: rgba(232, 99, 107, 0.12); }
 
 /* =========================================================================
    App shell
@@ -468,6 +486,14 @@ button {
   pointer-events: none;
 }
 
+.countdown--tick { animation: count-tick 0.9s var(--ease); }
+
+@keyframes count-tick {
+  0%   { opacity: 0; transform: scale(1.35); }
+  25%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.85; transform: scale(0.96); }
+}
+
 .flash {
   position: absolute;
   inset: 0;
@@ -536,6 +562,7 @@ button {
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
+  scroll-behavior: smooth;
   flex: 1;
   min-width: 0;
 }
@@ -550,6 +577,7 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
   padding: 8px 12px;
   background: var(--bg-panel);
   border: 1px solid var(--bg-panel-line);
@@ -567,6 +595,9 @@ button {
   text-transform: uppercase;
   color: var(--ink-muted);
 }
+
+.effect-chip:hover { border-color: var(--accent-violet-dim); }
+.effect-chip:active { transform: scale(0.96); }
 
 .effect-chip--active {
   background: var(--bg-panel-raised);
@@ -594,6 +625,19 @@ button {
   inset: 5px;
   border-radius: 50%;
   border: 2px solid var(--bg-void);
+  transition: border-color 0.15s var(--ease);
+}
+
+/* Counting down: the ring turns brass and breathes, so a second tap reads
+   as "already shooting" rather than doing nothing. */
+.capture-btn--busy .capture-btn__ring {
+  border-color: var(--accent-brass);
+  animation: ring-breathe 1s ease-in-out infinite;
+}
+
+@keyframes ring-breathe {
+  0%, 100% { inset: 5px; }
+  50% { inset: 9px; }
 }
 
 /* =========================================================================
@@ -636,6 +680,28 @@ button {
   margin: 0;
 }
 
+.drawer-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 4px 0 0;
+}
+.drawer-meta:empty { display: none; }
+
+/* Behind an open drawer: dims the stage and closes the drawer on tap. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(10, 8, 13, 0.55);
+  animation: scrim-in 0.2s var(--ease);
+}
+
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .drawer-body {
   flex: 1;
   overflow-y: auto;
@@ -654,6 +720,18 @@ button {
 }
 
 .slider-row { flex-direction: column; align-items: stretch; gap: 10px; }
+
+.slider-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.slider-row__head output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-brass);
+}
 
 input[type="checkbox"] {
   width: 40px;
@@ -727,23 +805,37 @@ input[type="range"] {
 .shot-row {
   display: flex;
   justify-content: space-between;
-  margin-top: 6px;
-  padding: 0 2px;
+  margin-top: 4px;
 }
 
 .shot-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #6b5f42;
   text-decoration: none;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
 }
+.shot-link:hover { background: rgba(107, 95, 66, 0.12); }
 .shot-link--danger { color: #a44a44; }
+.shot-link--danger.is-armed { background: #a44a44; color: var(--paper); }
 
 /* =========================================================================
    Responsive
    ========================================================================= */
+
+/* Phone width: the chip dock was squeezed into whatever the buttons left
+   over (about one chip). Give it its own full-width row above the shutter. */
+@media (max-width: 520px) {
+  .console { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
+  #effect-dock { flex-basis: 100%; }
+}
 
 @media (max-width: 420px) {
   .capture-btn { width: 56px; height: 56px; }
@@ -759,9 +851,14 @@ input[type="range"] {
   .boot-dial__sweep,
   .readout--live .readout-dial__pulse,
   .drawer,
+  .scrim,
+  .countdown--tick,
+  .capture-btn--busy .capture-btn__ring,
   .flash-play {
     animation: none !important;
   }
+
+  .console-group { scroll-behavior: auto; }
 
   /* The toast still has to appear and then go away, so instead of killing
      its animation it swaps to one that only fades — no movement. */

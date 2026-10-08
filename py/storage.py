@@ -4,6 +4,10 @@ storage.py — the entire persistence layer, and it's just localStorage.
 No database, no server, no IndexedDB — the project called for localStorage
 only, so this module is deliberately small: read JSON out, write JSON in,
 and fail safely if the browser's storage quota is full.
+
+The gallery is a few MB of base64 JPEGs, so it's parsed out of localStorage
+once per page load and then kept in memory; every write goes through to
+localStorage and only updates the in-memory copy once the browser accepted it.
 """
 
 import json
@@ -13,6 +17,7 @@ from pyscript import window
 
 GALLERY_KEY = "signalbooth:gallery"
 SETTINGS_KEY = "signalbooth:settings"
+ONBOARDED_KEY = "signalbooth:onboarded"
 MAX_GALLERY_ITEMS = 24
 
 DEFAULT_SETTINGS = {
@@ -23,6 +28,8 @@ DEFAULT_SETTINGS = {
     "last_effect": "idle",
     "theme_index": 0,
 }
+
+_gallery = None  # in-memory copy of the strip; None until first read
 
 
 def _get_raw(key):
@@ -43,64 +50,84 @@ def _set_raw(key, value):
         return False
 
 
+def _coerce(value, default):
+    """Keeps a stored value only if it has the default's type, so a stale or
+    hand-edited cache can't feed a string into the render loop."""
+    if isinstance(default, bool) or not isinstance(default, (int, float)):
+        return value if type(value) is type(default) else default
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return type(default)(value)
+    return default
+
+
 def load_settings():
-    raw = _get_raw(SETTINGS_KEY)
-    if not raw:
-        return dict(DEFAULT_SETTINGS)
+    settings = dict(DEFAULT_SETTINGS)
     try:
-        data = json.loads(raw)
-        merged = dict(DEFAULT_SETTINGS)
-        merged.update(data)
-        return merged
+        data = json.loads(_get_raw(SETTINGS_KEY) or "{}")
     except (ValueError, TypeError):
-        return dict(DEFAULT_SETTINGS)
+        return settings
+    if isinstance(data, dict):
+        for key, default in DEFAULT_SETTINGS.items():
+            if key in data:
+                settings[key] = _coerce(data[key], default)
+    return settings
 
 
 def save_settings(settings):
     return _set_raw(SETTINGS_KEY, json.dumps(settings))
 
 
+def is_onboarded():
+    return bool(_get_raw(ONBOARDED_KEY))
+
+
+def mark_onboarded():
+    _set_raw(ONBOARDED_KEY, "1")
+
+
 def load_gallery():
-    raw = _get_raw(GALLERY_KEY)
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-        return data if isinstance(data, list) else []
-    except (ValueError, TypeError):
-        return []
+    global _gallery
+    if _gallery is None:
+        try:
+            data = json.loads(_get_raw(GALLERY_KEY) or "[]")
+        except (ValueError, TypeError):
+            data = []
+        _gallery = [p for p in data if isinstance(p, dict) and "id" in p and "dataUrl" in p] if isinstance(data, list) else []
+    return list(_gallery)
+
+
+def gallery_size():
+    """Rough bytes the strip takes in localStorage (base64 is ASCII)."""
+    return sum(len(p["dataUrl"]) for p in load_gallery())
 
 
 def save_gallery(items):
-    trimmed = items[-MAX_GALLERY_ITEMS:]
-    ok = _set_raw(GALLERY_KEY, json.dumps(trimmed))
-    if not ok and len(trimmed) > 1:
-        # Storage is likely full. Drop the oldest half and try once more
-        # rather than silently losing the newest photo.
-        trimmed = trimmed[len(trimmed) // 2 :]
-        ok = _set_raw(GALLERY_KEY, json.dumps(trimmed))
-    return trimmed if ok else load_gallery()
+    """Writes the strip, dropping the oldest shots one at a time until the
+    browser's quota accepts it. Returns how many were dropped to make room,
+    or None if nothing could be written (the stored strip is left as it was)."""
+    global _gallery
+    items = items[-MAX_GALLERY_ITEMS:]
+    for dropped in range(max(1, len(items))):
+        kept = items[dropped:]
+        if _set_raw(GALLERY_KEY, json.dumps(kept)):
+            _gallery = kept
+            return dropped
+    return None
 
 
 def add_photo(data_url, effect_name):
+    now = int(time.time() * 1000)
     items = load_gallery()
-    items.append(
-        {
-            "id": f"shot-{int(time.time() * 1000)}",
-            "dataUrl": data_url,
-            "effect": effect_name,
-            "ts": int(time.time() * 1000),
-        }
-    )
+    taken = {p["id"] for p in items}
+    while f"shot-{now}" in taken:  # ids must stay unique — delete goes by id
+        now += 1
+    items.append({"id": f"shot-{now}", "dataUrl": data_url, "effect": effect_name, "ts": now})
     return save_gallery(items)
 
 
 def delete_photo(photo_id):
-    items = [p for p in load_gallery() if p["id"] != photo_id]
-    save_gallery(items)
-    return items
+    return save_gallery([p for p in load_gallery() if p["id"] != photo_id])
 
 
 def clear_gallery():
-    _set_raw(GALLERY_KEY, json.dumps([]))
-    return []
+    return save_gallery([])

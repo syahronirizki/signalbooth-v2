@@ -25,7 +25,7 @@ import asyncio
 import time
 
 from pyscript import document, when, window
-from pyodide.ffi import create_proxy
+from pyodide.ffi import create_proxy, to_js
 
 import effects
 import gestures
@@ -65,6 +65,12 @@ EFFECT_META = {
     "rain": {"label": "Rain Mood", "icon": "\U0001f44e", "signal": "thumb_down"},
 }
 SIGNAL_TO_EFFECT = {v["signal"]: k for k, v in EFFECT_META.items() if v["signal"]}
+
+# Settings come back from localStorage, which can outlive the code that wrote
+# it: an effect that's since been renamed, or an intensity off the slider.
+if state["effect"] not in EFFECT_META:
+    state["effect"] = settings["last_effect"] = "idle"
+state["intensity"] = settings["intensity"] = min(1.6, max(0.4, state["intensity"]))
 
 # How long each moment keeps playing after its gesture stops being seen.
 # Held gestures refresh this every frame, so the number is really "tail
@@ -109,22 +115,33 @@ def toast(message):
     el.classList.add("toast--show")
 
 
+_SCROLL_NEAREST = {"block": "nearest", "inline": "nearest"}  # smoothness is CSS scroll-behavior
+
+
 def build_effect_dock():
     dock = document.getElementById("effect-dock")
     dock.innerHTML = ""
-    for key in EFFECT_ORDER:
+    for number, key in enumerate(EFFECT_ORDER, start=1):
         meta = EFFECT_META[key]
         btn = document.createElement("button")
         active = key == state["effect"]
         btn.className = "effect-chip" + (" effect-chip--active" if active else "")
         btn.setAttribute("data-effect", key)
-        btn.setAttribute("title", meta["label"])
+        btn.setAttribute("aria-pressed", "true" if active else "false")
+        btn.setAttribute("aria-keyshortcuts", str(number))
+        btn.setAttribute("title", f"{meta['label']} · key {number}")
         btn.innerHTML = (
             f'<span class="effect-chip__icon">{meta["icon"]}</span>'
             f'<span class="effect-chip__label">{meta["label"]}</span>'
         )
         btn.addEventListener("click", create_proxy(_make_effect_handler(key)))
         dock.appendChild(btn)
+
+
+def _reveal(chip):
+    """Scrolls a chip into the dock's view — a gesture or a restored setting
+    can pick one that's scrolled off, and the dock should show what's live."""
+    chip.scrollIntoView(to_js(_SCROLL_NEAREST, dict_converter=window.Object.fromEntries))
 
 
 def _make_effect_handler(key):
@@ -144,7 +161,11 @@ def set_effect(key, announce=False):
     if key != "hype":
         state["combo"] = 0
     for chip in document.querySelectorAll(".effect-chip"):
-        chip.classList.toggle("effect-chip--active", chip.getAttribute("data-effect") == key)
+        active = chip.getAttribute("data-effect") == key
+        chip.classList.toggle("effect-chip--active", active)
+        chip.setAttribute("aria-pressed", "true" if active else "false")
+        if active:
+            _reveal(chip)
     if announce:
         toast(EFFECT_META[key]["label"])
 
@@ -169,7 +190,7 @@ def trigger_moment(name, now):
 
 def shoot():
     asyncio.ensure_future(
-        photobooth.start_countdown(canvas, video, state["effect"], settings["mirror"])
+        photobooth.start_countdown(canvas, video, state["effect"], settings["mirror"], notify=toast)
     )
 
 
@@ -303,13 +324,53 @@ window.__sbFrameCallback = create_proxy(on_frame)
 # --------------------------------------------------------------- events --
 
 
+# The guide and the two drawers are overlays: only one is open at a time, the
+# stage behind goes `inert` (so Tab can't wander under it), and closing puts
+# focus back on whatever opened it.
+OVERLAYS = ("onboarding", "gallery-drawer", "settings-drawer")
+_return_focus = [None]
+
+
+def _open_overlay_id():
+    for el_id in OVERLAYS:
+        if not document.getElementById(el_id).classList.contains("hidden"):
+            return el_id
+    return None
+
+
+def open_overlay(el_id):
+    if _open_overlay_id() is None:
+        _return_focus[0] = document.activeElement
+    for other in OVERLAYS:
+        document.getElementById(other).classList.toggle("hidden", other != el_id)
+    # The guide brings its own backdrop; drawers share the scrim.
+    document.getElementById("scrim").classList.toggle("hidden", el_id == "onboarding")
+    document.querySelector(".stage-wrap").inert = True
+    document.getElementById(el_id).querySelector("button").focus()
+
+
+def close_overlays():
+    open_id = _open_overlay_id()
+    if open_id is None:
+        return
+    if open_id == "onboarding":
+        storage.mark_onboarded()
+    document.getElementById(open_id).classList.add("hidden")
+    document.getElementById("scrim").classList.add("hidden")
+    document.querySelector(".stage-wrap").inert = False
+    if _return_focus[0]:
+        _return_focus[0].focus()
+    _return_focus[0] = None
+
+
 def _on_camera_ready(evt):
     detail = evt.detail
     set_canvas_size(detail.width, detail.height)
     apply_mirror()
     document.getElementById("boot-screen").classList.add("hidden")
-    if not window.localStorage.getItem("signalbooth:onboarded"):
-        document.getElementById("onboarding").classList.remove("hidden")
+    _reveal(document.querySelector(".effect-chip--active"))  # a restored effect may sit off-dock
+    if not storage.is_onboarded():
+        open_overlay("onboarding")
 
 
 window.addEventListener("signalbooth:ready", create_proxy(_on_camera_ready))
@@ -317,13 +378,23 @@ window.addEventListener("signalbooth:ready", create_proxy(_on_camera_ready))
 
 @when("click", "#onboarding-dismiss")
 def dismiss_onboarding(evt):
-    document.getElementById("onboarding").classList.add("hidden")
-    window.localStorage.setItem("signalbooth:onboarded", "1")
+    close_overlays()
+
+
+@when("click", "#onboarding")
+def on_onboarding_backdrop(evt):
+    if evt.target.id == "onboarding":  # the dimmed area, not the card
+        close_overlays()
+
+
+@when("click", "#scrim")
+def on_scrim_click(evt):
+    close_overlays()
 
 
 @when("click", "#help-btn")
 def show_help(evt):
-    document.getElementById("onboarding").classList.remove("hidden")
+    open_overlay("onboarding")
 
 
 @when("click", "#theme-btn")
@@ -338,28 +409,40 @@ def on_capture_click(evt):
 
 @when("click", "#gallery-btn")
 def open_gallery(evt):
-    photobooth.render_gallery()
-    document.getElementById("gallery-drawer").classList.remove("hidden")
-
-
-@when("click", "#gallery-close")
-def close_gallery(evt):
-    document.getElementById("gallery-drawer").classList.add("hidden")
-
-
-@when("click", "#gallery-clear")
-def clear_gallery_click(evt):
-    photobooth.clear_all()
+    open_overlay("gallery-drawer")  # already current: render_gallery runs on every change
 
 
 @when("click", "#settings-btn")
 def open_settings(evt):
-    document.getElementById("settings-drawer").classList.remove("hidden")
+    open_overlay("settings-drawer")
 
 
-@when("click", "#settings-close")
-def close_settings(evt):
-    document.getElementById("settings-drawer").classList.add("hidden")
+@when("click", "#gallery-close, #settings-close")
+def close_drawer(evt):
+    close_overlays()
+
+
+def _refocus_strip():
+    # The pressed button is gone after the strip re-renders; keep keyboard
+    # focus in the drawer instead of letting it fall back to <body>.
+    if document.activeElement is None or document.activeElement.tagName == "BODY":
+        document.getElementById("gallery-close").focus()
+
+
+@when("click", "#gallery-grid")
+def on_gallery_click(evt):
+    btn = evt.target.closest("[data-delete]")
+    if btn:
+        photo_id = btn.getAttribute("data-delete")
+        photobooth.confirm_then(btn, "Sure?", lambda: (photobooth.delete(photo_id), _refocus_strip()))
+
+
+@when("click", "#gallery-clear")
+def clear_gallery_click(evt):
+    count = len(storage.load_gallery())
+    photobooth.confirm_then(
+        evt.currentTarget, f"Delete all {count}?", lambda: (photobooth.clear_all(), _refocus_strip())
+    )
 
 
 @when("change", "#mirror-toggle")
@@ -381,17 +464,43 @@ def on_palmhold_toggle(evt):
     storage.save_settings(settings)
 
 
+def show_intensity(value):
+    document.getElementById("intensity-value").innerText = f"{value:.1f}\u00d7"
+
+
 @when("input", "#intensity-slider")
-def on_intensity_change(evt):
+def on_intensity_input(evt):
+    # Live while dragging; written to localStorage once, on release.
     state["intensity"] = float(evt.target.value)
+    show_intensity(state["intensity"])
+
+
+@when("change", "#intensity-slider")
+def on_intensity_change(evt):
     settings["intensity"] = state["intensity"]
     storage.save_settings(settings)
 
 
 @when("keydown", "body")
 def on_key(evt):
-    """Keyboard shortcuts, for demoing the app without waving at it."""
+    """Keyboard shortcuts, for demoing the app without waving at it. They
+    stand down while an overlay is open, and for any focused control that
+    owns the key itself — space on a button presses that button."""
     key = (evt.key or "").lower()
+    if key == "escape":
+        close_overlays()
+        return
+    tag = evt.target.tagName
+    if (
+        evt.repeat
+        or evt.metaKey
+        or evt.ctrlKey
+        or evt.altKey
+        or _open_overlay_id()
+        or tag in ("INPUT", "TEXTAREA", "SELECT")
+        or (key == " " and tag in ("BUTTON", "A"))
+    ):
+        return
     if key == " ":
         evt.preventDefault()
         shoot()
@@ -416,6 +525,7 @@ document.getElementById("mirror-toggle").checked = settings["mirror"]
 document.getElementById("skeleton-toggle").checked = settings["show_skeleton"]
 document.getElementById("palmhold-toggle").checked = settings["palm_shutter"]
 document.getElementById("intensity-slider").value = str(settings["intensity"])
+show_intensity(settings["intensity"])
 document.getElementById("theme-btn").setAttribute(
     "data-theme", effects.theme_name(state["theme_index"])
 )

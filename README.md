@@ -81,7 +81,8 @@ signalbooth/
     ├── gestures.py        landmark geometry, debouncing, custom detectors
     ├── effects.py          the VFX: every effect and moment, plus the safe box
     ├── photobooth.py       countdown, capture, gallery DOM
-    └── storage.py           localStorage read/write for settings + gallery
+    ├── storage.py           localStorage read/write for settings + gallery
+    └── test_storage.py      self-check for storage.py: `python3 py/test_storage.py`
 ```
 
 ## Running it
@@ -150,7 +151,12 @@ Taking a photo:
 Effects can also be switched by hand from the chip dock at the bottom of
 the screen — gestures aren't the only way in. Keyboard: <kbd>space</kbd>
 shoot, <kbd>T</kbd> theme, <kbd>M</kbd> mirror, <kbd>1</kbd>–<kbd>8</kbd>
-effects.
+effects, <kbd>esc</kbd> closes the guide or a drawer. Shortcuts stand down
+while a drawer is open or a control is focused (space on a focused button
+presses that button).
+
+Deleting a shot or clearing the strip takes two taps — the first arms the
+button, the second (within 3s) does it.
 
 ## Design
 
@@ -209,8 +215,12 @@ Two details that took more care than they look like they did:
 - Needs an internet connection on first load (CDN-hosted runtime + model);
   it isn't a fully offline app.
 - `localStorage` has a browser-enforced size limit (usually 5–10MB), so
-  the gallery caps itself at the 24 most recent shots and drops older
-  ones if storage fills up — see `MAX_GALLERY_ITEMS` in `py/storage.py`.
+  the gallery caps itself at the 24 most recent shots — see
+  `MAX_GALLERY_ITEMS` in `py/storage.py`. If the quota fills first, it
+  drops the oldest shots one at a time until the new one fits, and the
+  toast after each capture says so (or says the shot wasn't saved). The
+  strip is parsed once per page load and kept in memory; settings read
+  back from storage are type-checked against their defaults.
 - The webcam filters (Soft Focus, Rain Mood) use the canvas `filter`
   property. It's supported in current Chrome, Edge, Firefox and Safari 17+;
   on anything older those two effects lose their tint and keep only their

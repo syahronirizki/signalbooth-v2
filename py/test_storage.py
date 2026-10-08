@@ -1,0 +1,63 @@
+"""Self-check for storage.py, outside the browser: python3 py/test_storage.py
+
+Stubs PyScript's `window` with a localStorage that throws past a quota,
+the way a real browser does. Not mounted in pyscript.toml, so it never ships.
+"""
+
+import json
+import sys
+import types
+
+
+class FakeLocalStorage:
+    def __init__(self, quota):
+        self.data, self.quota = {}, quota
+
+    def getItem(self, key):
+        return self.data.get(key)
+
+    def setItem(self, key, value):
+        if len(value) > self.quota:
+            raise Exception("QuotaExceededError")
+        self.data[key] = value
+
+
+ls = FakeLocalStorage(quota=1000)
+sys.modules["pyscript"] = types.SimpleNamespace(window=types.SimpleNamespace(localStorage=ls))
+import storage  # noqa: E402
+
+
+def fresh(data=None):
+    ls.data = dict(data or {})
+    storage._gallery = None
+
+
+# Settings: wrong-typed or unknown cached values fall back to defaults.
+fresh({storage.SETTINGS_KEY: json.dumps({"intensity": "loud", "mirror": "yes", "theme_index": 2.0, "junk": 1})})
+s = storage.load_settings()
+assert s["intensity"] == 1.0 and s["mirror"] is True and s["theme_index"] == 2 and "junk" not in s, s
+fresh({storage.SETTINGS_KEY: "{not json"})
+assert storage.load_settings() == storage.DEFAULT_SETTINGS
+
+# Gallery: quota full drops oldest shots, keeps the newest, reports how many.
+fresh()
+shot = "x" * 200  # ~4 shots fit under the 1000-char quota once JSON-wrapped
+results = [storage.add_photo(shot, "aura") for _ in range(8)]
+kept = storage.load_gallery()
+assert 0 < len(kept) < 8 and results[0] == 0 and sum(results) == 8 - len(kept), results
+assert json.loads(ls.data[storage.GALLERY_KEY]) == kept  # cache matches what's stored
+
+# A shot too big to ever fit: nothing written, strip untouched.
+before = ls.data[storage.GALLERY_KEY]
+assert storage.add_photo("x" * 5000, "aura") is None
+assert ls.data[storage.GALLERY_KEY] == before and len(storage.load_gallery()) == len(kept)
+
+# Delete and clear go all the way to an empty, stored list.
+assert storage.delete_photo(kept[0]["id"]) == 0 and len(storage.load_gallery()) == len(kept) - 1
+assert storage.clear_gallery() == 0 and ls.data[storage.GALLERY_KEY] == "[]"
+
+# Corrupt gallery JSON reads as empty instead of crashing the app.
+fresh({storage.GALLERY_KEY: "[{]"})
+assert storage.load_gallery() == []
+
+print("storage ok")

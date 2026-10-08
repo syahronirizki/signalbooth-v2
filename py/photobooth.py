@@ -8,43 +8,46 @@ doing DOM manipulation rather than just reacting to it.
 
 import asyncio
 
-from pyodide.ffi import create_proxy
 from pyscript import document
 
 import storage
 
 COUNTDOWN_SECONDS = 3
+ARM_SECONDS = 3
 _busy = False
 
 
-async def start_countdown(canvas, video, effect_name, mirrored=True):
+async def start_countdown(canvas, video, effect_name, mirrored=True, notify=print):
     """Runs a 3-2-1 countdown, then captures and flashes. Ignored if a
-    capture is already in progress, so a held peace sign can't queue up
-    a dozen photos."""
+    capture is already in progress, so a held palm can't queue up a dozen
+    photos. `notify` gets a one-line caption saying whether the shot was saved."""
     global _busy
     if _busy:
         return
     _busy = True
     el = document.getElementById("countdown")
+    btn = document.getElementById("capture-btn")
     el.classList.remove("hidden")
+    btn.classList.add("capture-btn--busy")
     try:
         for n in range(COUNTDOWN_SECONDS, 0, -1):
             el.innerText = str(n)
+            _replay(el, "countdown--tick")
             await asyncio.sleep(1)
         el.innerText = ""
-        capture(canvas, video, effect_name, mirrored=mirrored)
-        _flash()
+        notify(capture(canvas, video, effect_name, mirrored=mirrored))
+        _replay(document.getElementById("flash"), "flash-play")
         await asyncio.sleep(0.3)
     finally:
         el.classList.add("hidden")
+        btn.classList.remove("capture-btn--busy")
         _busy = False
 
 
-def _flash():
-    flash = document.getElementById("flash")
-    flash.classList.remove("flash-play")
-    _ = flash.offsetWidth  # force reflow so back-to-back captures re-trigger the animation
-    flash.classList.add("flash-play")
+def _replay(el, cls):
+    el.classList.remove(cls)
+    _ = el.offsetWidth  # force reflow so back-to-back runs re-trigger the animation
+    el.classList.add(cls)
 
 
 def capture(canvas, video, effect_name, mirrored=True):
@@ -63,21 +66,38 @@ def capture(canvas, video, effect_name, mirrored=True):
         ectx.scale(-1, 1)
     ectx.drawImage(canvas, 0, 0, width, height)
 
-    data_url = export.toDataURL("image/jpeg", 0.82)
-    storage.add_photo(data_url, effect_name)
+    dropped = storage.add_photo(export.toDataURL("image/jpeg", 0.82), effect_name)
     render_gallery()
-    return data_url
+    if dropped is None:
+        return "Storage full · not saved"
+    if dropped:
+        return f"Saved · {dropped} oldest removed"
+    return f"Saved · {len(storage.load_gallery())} in strip"
 
 
 def render_gallery():
+    """Rebuilds the strip plus everything that summarizes it: the count
+    badge on the Strip button, the size line, and the Clear all button."""
     grid = document.getElementById("gallery-grid")
     grid.innerHTML = ""
     items = list(reversed(storage.load_gallery()))
+    count = len(items)
+
+    document.getElementById("strip-count").innerText = str(count) if count else ""
+    document.getElementById("gallery-btn").setAttribute(
+        "aria-label", f"Open your photo strip, {count} shot{'' if count == 1 else 's'}"
+    )
+    size = storage.gallery_size()
+    size_label = f"{size / 1e6:.1f} MB" if size >= 1e5 else f"{max(1, round(size / 1e3))} KB"
+    document.getElementById("gallery-meta").innerText = (
+        f"{count} of {storage.MAX_GALLERY_ITEMS} · {size_label} on this device" if count else ""
+    )
+    document.getElementById("gallery-clear").classList.toggle("hidden", not count)
 
     if not items:
         empty = document.createElement("p")
         empty.className = "gallery-empty"
-        empty.innerText = "No shots yet. Try a peace sign \u270c\ufe0f, or tap the shutter."
+        empty.innerText = "No shots yet. Hold \u270b still, tap the shutter, or press space."
         grid.appendChild(empty)
         return
 
@@ -104,22 +124,46 @@ def _build_shot_card(item):
     save_link.className = "shot-link"
     row.appendChild(save_link)
 
+    # No listener per card: main.py delegates clicks on the grid by data-delete.
     delete_btn = document.createElement("button")
     delete_btn.innerText = "Delete"
     delete_btn.className = "shot-link shot-link--danger"
-    delete_btn.addEventListener("click", create_proxy(_make_delete_handler(item["id"])))
+    delete_btn.setAttribute("data-delete", item["id"])
     row.appendChild(delete_btn)
 
     card.appendChild(row)
     return card
 
 
-def _make_delete_handler(photo_id):
-    def handler(evt):
-        storage.delete_photo(photo_id)
-        render_gallery()
+def confirm_then(btn, prompt, action):
+    """Two-tap confirm for destructive buttons: the first tap arms the button
+    and relabels it with `prompt`, a second tap within ARM_SECONDS runs
+    `action`, otherwise it quietly disarms. Cheaper than a modal, much harder
+    to fat-finger than a bare delete."""
+    if btn.classList.contains("is-armed"):
+        _disarm(btn)
+        action()
+        return
+    btn.setAttribute("data-label", btn.textContent)
+    btn.classList.add("is-armed")
+    btn.textContent = prompt
+    asyncio.ensure_future(_disarm_later(btn))
 
-    return handler
+
+def _disarm(btn):
+    if btn.classList.contains("is-armed"):
+        btn.classList.remove("is-armed")
+        btn.textContent = btn.getAttribute("data-label")
+
+
+async def _disarm_later(btn):
+    await asyncio.sleep(ARM_SECONDS)
+    _disarm(btn)
+
+
+def delete(photo_id):
+    storage.delete_photo(photo_id)
+    render_gallery()
 
 
 def clear_all():
