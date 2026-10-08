@@ -39,6 +39,17 @@ assert s["intensity"] == 1.0 and s["mirror"] is True and s["theme_index"] == 2 a
 fresh({storage.SETTINGS_KEY: "{not json"})
 assert storage.load_settings() == storage.DEFAULT_SETTINGS
 
+# New keys: wrong types fall back, and settings saved before they existed still load.
+fresh({storage.SETTINGS_KEY: json.dumps({"background": 5, "timer": "10"})})
+s = storage.load_settings()
+assert s["background"] == "none" and s["timer"] == 3, s
+fresh({storage.SETTINGS_KEY: json.dumps({"mirror": False, "background": "neon", "timer": 10})})
+s = storage.load_settings()
+assert s["mirror"] is False and s["background"] == "neon" and s["timer"] == 10, s
+fresh({storage.SETTINGS_KEY: json.dumps({"mirror": False})})
+s = storage.load_settings()
+assert s["background"] == "none" and s["timer"] == 3, s
+
 # Gallery: quota full drops oldest shots, keeps the newest, reports how many.
 fresh()
 shot = "x" * 200  # ~4 shots fit under the 1000-char quota once JSON-wrapped

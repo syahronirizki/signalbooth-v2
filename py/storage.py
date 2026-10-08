@@ -27,6 +27,8 @@ DEFAULT_SETTINGS = {
     "intensity": 1.0,
     "last_effect": "idle",
     "theme_index": 0,
+    "background": "none",  # virtual background key, see py/backgrounds.py
+    "timer": 3,  # self-timer seconds before the shutter; 0 = shoot at once
 }
 
 _gallery = None  # in-memory copy of the strip; None until first read
