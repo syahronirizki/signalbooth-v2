@@ -258,6 +258,8 @@ body::before {
   transition: transform 0.2s var(--spring);
 }
 .shutter:active { transform: translate(-50%, -50%) scale(0.92); }
+/* The focused dial item sits under the shutter, so the ring shows its focus. */
+.dial:has(.dial-item:focus-visible) .shutter { outline: 2px solid var(--accent-brass); outline-offset: 4px; }
 
 .shutter__ring {
   position: absolute;

@@ -193,6 +193,7 @@ def mark_active(scroll=True):
     for item in carousel.querySelectorAll(".dial-item"):
         active = item.getAttribute("data-key") == key
         item.setAttribute("aria-pressed", "true" if active else "false")
+        item.tabIndex = 0 if active else -1  # one Tab stop for the dial; arrows turn it
         if active and scroll:
             item.scrollIntoView(to_js(_CENTER, dict_converter=window.Object.fromEntries))
 
@@ -580,6 +581,21 @@ def on_mode_click(evt):
     if mode != state["mode"]:
         state["mode"] = mode
         build_dial()
+
+
+@when("keydown", "#carousel")
+def on_dial_key(evt):
+    """Left/Right turn the dial from the keyboard. Only the active item is a
+    Tab stop, so tabbing past the dial can't scroll it onto a new effect."""
+    step = {"ArrowRight": 1, "ArrowLeft": -1}.get(evt.key)
+    if not step:
+        return
+    evt.preventDefault()  # no native scroll; choose() centers the new item
+    keys = [key for key, _ in _dial_items()]
+    current = state["effect"] if state["mode"] == "effects" else state["background"]
+    target = keys[max(0, min(len(keys) - 1, keys.index(current) + step))]
+    choose(target)
+    carousel.querySelector(f'[data-key="{target}"]').focus()
 
 
 @when("click", "#carousel")
