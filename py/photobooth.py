@@ -1,46 +1,52 @@
 """
-photobooth.py — the capture flow (countdown → snapshot → flash) and the
-gallery drawer. The gallery's DOM — every thumbnail, the empty state, the
-save/delete links — is built here, in Python, and written straight into
-the page. This is the clearest example in the project of Python actually
-doing DOM manipulation rather than just reacting to it.
+photobooth.py — the capture flow (timer → snapshot → flash), the strip
+grid, and the photo viewer. Their DOM — every tile, the empty state, the
+viewer's share/save/delete — is built here, in Python, and written straight
+into the page. This is the clearest example in the project of Python
+actually doing DOM manipulation rather than just reacting to it.
 """
 
 import asyncio
+import base64
 
-from pyscript import document
+from pyodide.ffi import to_js
+from pyscript import document, window
 
+import effects
 import storage
 
-COUNTDOWN_SECONDS = 3
 ARM_SECONDS = 3
 _busy = False
+_viewer = {"id": None, "share": None}  # the open shot's id + its ready-made share payload
 
 
-async def start_countdown(canvas, video, effect_name, mirrored=True, notify=print):
-    """Runs a 3-2-1 countdown, then captures and flashes. Ignored if a
-    capture is already in progress, so a held palm can't queue up a dozen
-    photos. `notify` gets a one-line caption saying whether the shot was saved."""
+async def start_countdown(canvas, effect_name, mirrored, seconds, notify=print):
+    """Counts down `seconds` (0 shoots straight away), then captures and
+    flashes. Ignored if a capture is already running, so a held palm can't
+    queue up a dozen photos. `notify` gets a one-line caption saying whether
+    the shot was saved."""
     global _busy
     if _busy:
         return
     _busy = True
     el = document.getElementById("countdown")
     btn = document.getElementById("capture-btn")
-    el.classList.remove("hidden")
-    btn.classList.add("capture-btn--busy")
+    btn.classList.add("shutter--busy")
     try:
-        for n in range(COUNTDOWN_SECONDS, 0, -1):
+        if seconds:
+            el.classList.remove("hidden")
+        for n in range(seconds, 0, -1):
             el.innerText = str(n)
             _replay(el, "countdown--tick")
             await asyncio.sleep(1)
         el.innerText = ""
-        notify(capture(canvas, video, effect_name, mirrored=mirrored))
+        notify(capture(canvas, effect_name, mirrored))
         _replay(document.getElementById("flash"), "flash-play")
+        _replay(document.getElementById("gallery-btn"), "last-shot--pop")
         await asyncio.sleep(0.3)
     finally:
         el.classList.add("hidden")
-        btn.classList.remove("capture-btn--busy")
+        btn.classList.remove("shutter--busy")
         _busy = False
 
 
@@ -50,21 +56,20 @@ def _replay(el, cls):
     el.classList.add(cls)
 
 
-def capture(canvas, video, effect_name, mirrored=True):
-    """Composites the current canvas (video + live effect) to a JPEG data
-    URL. If the live view is mirrored, the export is mirrored too, so the
-    saved photo matches what was actually on screen — not a backwards
-    version of it."""
-    width, height = canvas.width, canvas.height
+def capture(canvas, effect_name, mirrored):
+    """Exports what's on screen as a JPEG: only the visible part of the
+    canvas (a phone held upright sees a slice of a landscape frame), and
+    mirrored if the live view is — the visible box is centered, so
+    mirroring the crop is the same as cropping the mirror."""
+    x, y, w, h = effects.safe_rect()
     export = document.createElement("canvas")
-    export.width = width
-    export.height = height
+    export.width = w
+    export.height = h
     ectx = export.getContext("2d")
-
     if mirrored:
-        ectx.translate(width, 0)
+        ectx.translate(w, 0)
         ectx.scale(-1, 1)
-    ectx.drawImage(canvas, 0, 0, width, height)
+    ectx.drawImage(canvas, x, y, w, h, 0, 0, w, h)
 
     dropped = storage.add_photo(export.toDataURL("image/jpeg", 0.82), effect_name)
     render_gallery()
@@ -75,14 +80,24 @@ def capture(canvas, video, effect_name, mirrored=True):
     return f"Saved · {len(storage.load_gallery())} in strip"
 
 
+def _when(item):
+    """The shot's time in the viewer's own locale (Pyodide's clock is UTC)."""
+    opts = to_js({"dateStyle": "medium", "timeStyle": "short"}, dict_converter=window.Object.fromEntries)
+    return window.Date.new(item.get("ts") or 0).toLocaleString(None, opts)
+
+
 def render_gallery():
-    """Rebuilds the strip plus everything that summarizes it: the count
-    badge on the Strip button, the size line, and the Clear all button."""
+    """Rebuilds the strip grid plus everything that summarizes it: the
+    last-shot thumbnail and count on the camera, the size line, Clear all."""
     grid = document.getElementById("gallery-grid")
     grid.innerHTML = ""
     items = list(reversed(storage.load_gallery()))
     count = len(items)
 
+    thumb = document.getElementById("last-shot-img")
+    thumb.classList.toggle("hidden", not count)
+    if count:
+        thumb.src = items[0]["dataUrl"]
     document.getElementById("strip-count").innerText = str(count) if count else ""
     document.getElementById("gallery-btn").setAttribute(
         "aria-label", f"Open your photo strip, {count} shot{'' if count == 1 else 's'}"
@@ -97,42 +112,93 @@ def render_gallery():
     if not items:
         empty = document.createElement("p")
         empty.className = "gallery-empty"
-        empty.innerText = "No shots yet. Hold \u270b still, tap the shutter, or press space."
+        empty.innerText = "No shots yet. Hold ✋ still, tap the shutter, or press space."
         grid.appendChild(empty)
         return
 
     for item in items:
-        grid.appendChild(_build_shot_card(item))
+        # No listener per tile: main.py delegates clicks on the grid by data-open.
+        tile = document.createElement("button")
+        tile.className = "shot-tile"
+        tile.setAttribute("data-open", item["id"])
+        tile.setAttribute("aria-label", f"Open photo from {_when(item)}")
+        img = document.createElement("img")
+        img.src = item["dataUrl"]
+        img.alt = ""
+        tile.appendChild(img)
+        grid.appendChild(tile)
 
 
-def _build_shot_card(item):
-    card = document.createElement("div")
-    card.className = "shot-card"
-
-    img = document.createElement("img")
+def open_viewer(photo_id):
+    item = next((p for p in storage.load_gallery() if p["id"] == photo_id), None)
+    if item is None:
+        return
+    _viewer["id"] = photo_id
+    _viewer["share"] = _share_payload(item)
+    img = document.getElementById("viewer-img")
     img.src = item["dataUrl"]
-    img.alt = f"Capture with the {item['effect']} effect"
-    card.appendChild(img)
+    img.alt = f"Photo from {_when(item)}"
+    document.getElementById("viewer-meta").innerText = _when(item)
+    save = document.getElementById("viewer-save")
+    save.href = item["dataUrl"]
+    save.setAttribute("download", f"signalbooth-{photo_id}.jpg")
+    document.getElementById("viewer-share").classList.toggle("hidden", _viewer["share"] is None)
+    document.getElementById("viewer").classList.remove("hidden")
+    document.getElementById("viewer-back").focus()
 
-    row = document.createElement("div")
-    row.className = "shot-row"
 
-    save_link = document.createElement("a")
-    save_link.innerText = "Save"
-    save_link.href = item["dataUrl"]
-    save_link.setAttribute("download", f"signalbooth-{item['id']}.jpg")
-    save_link.className = "shot-link"
-    row.appendChild(save_link)
+def close_viewer(refocus=True):
+    """Closes the viewer if it's open and returns whether it was. Focus goes
+    back to the tile that opened it."""
+    viewer = document.getElementById("viewer")
+    if viewer.classList.contains("hidden"):
+        return False
+    viewer.classList.add("hidden")
+    tile = document.querySelector(f'[data-open="{_viewer["id"]}"]')
+    _viewer.update(id=None, share=None)
+    if refocus and tile:
+        tile.focus()
+    return True
 
-    # No listener per card: main.py delegates clicks on the grid by data-delete.
-    delete_btn = document.createElement("button")
-    delete_btn.innerText = "Delete"
-    delete_btn.className = "shot-link shot-link--danger"
-    delete_btn.setAttribute("data-delete", item["id"])
-    row.appendChild(delete_btn)
 
-    card.appendChild(row)
-    return card
+def _share_payload(item):
+    """The navigator.share() payload for a shot, or None where the browser
+    can't share files. Built when the viewer opens, not on tap: iOS only
+    allows share() while the tap is still fresh, so nothing may be awaited
+    between the click and the call."""
+    nav = window.navigator
+    if not hasattr(nav, "canShare"):
+        return None
+    try:
+        raw = base64.b64decode(item["dataUrl"].split(",", 1)[1])
+        opts = to_js({"type": "image/jpeg"}, dict_converter=window.Object.fromEntries)
+        file = window.File.new(to_js([to_js(raw)]), f"signalbooth-{item['id']}.jpg", opts)
+        payload = to_js({"files": [file], "title": "Signalbooth"}, dict_converter=window.Object.fromEntries)
+        return payload if nav.canShare(payload) else None
+    except Exception as err:
+        print(f"[photobooth] share unavailable: {err}")
+        return None
+
+
+def share_current(notify=print):
+    payload = _viewer["share"]
+    if payload is not None:
+        asyncio.ensure_future(_await_share(window.navigator.share(payload), notify))
+
+
+async def _await_share(promise, notify):
+    try:
+        await promise
+    except Exception as err:  # AbortError just means the share sheet was dismissed
+        if "AbortError" not in str(err):
+            notify("Couldn't share")
+
+
+def delete_current():
+    photo_id = _viewer["id"]
+    close_viewer(refocus=False)
+    if photo_id:
+        delete(photo_id)
 
 
 def confirm_then(btn, prompt, action):

@@ -1,10 +1,11 @@
 """
 main.py — Signalbooth's entry point.
 
-This is where the JS layer (handTracker.js — webcam + ML model only) meets
+This is where the JS layer (handTracker.js — webcam + ML models only) meets
 the Python layer that owns everything else: interpreting gestures, picking
-and rendering the active effect, running the photobooth flow, wiring up
-every button and toggle in the UI, and reading/writing localStorage.
+and rendering the active effect and background, running the photobooth
+flow, wiring up every control on the camera screen, and reading/writing
+localStorage.
 
 handTracker.js calls window.__sbFrameCallback once per video frame with a
 plain {"hands": [...], "t": ...} object. on_frame() below is that callback:
@@ -15,10 +16,13 @@ idea in this file:
 
   * **Effects** are persistent. A gesture switches to one and it stays until
     something else switches away, so you can set a look and then move freely.
-    They're also selectable by hand from the chip dock.
   * **Moments** are momentary. They play while their gesture is held (plus a
     short tail so they don't cut off the instant tracking blinks) and then
     they're gone — the thinking pad, the love rain, the portal.
+
+The dial — a scroll-snap carousel around the shutter, like a Stories camera —
+shows either effects or virtual backgrounds; whatever rests under the
+shutter is the active one.
 """
 
 import asyncio
@@ -27,6 +31,7 @@ import time
 from pyscript import document, when, window
 from pyodide.ffi import create_proxy, to_js
 
+import backgrounds
 import effects
 import gestures
 import photobooth
@@ -37,8 +42,15 @@ import storage
 settings = storage.load_settings()
 tracker = gestures.HandTracker()
 
+TIMER_STEPS = (3, 10, 0)  # what the timer button cycles through, in seconds
+
 state = {
     "effect": settings["last_effect"],
+    "background": settings["background"],
+    "timer": settings["timer"],
+    "facing": "user",  # not persisted: the app always opens on the selfie camera
+    "mode": "effects",  # what the dial shows: "effects" or "backgrounds"
+    "flipping": False,
     "theme_index": settings["theme_index"],
     "intensity": settings["intensity"],
     "last_frame_t": time.time(),
@@ -67,9 +79,14 @@ EFFECT_META = {
 SIGNAL_TO_EFFECT = {v["signal"]: k for k, v in EFFECT_META.items() if v["signal"]}
 
 # Settings come back from localStorage, which can outlive the code that wrote
-# it: an effect that's since been renamed, or an intensity off the slider.
+# it: an effect or background that's since been renamed, a timer value the
+# button no longer offers, an intensity off the slider.
 if state["effect"] not in EFFECT_META:
     state["effect"] = settings["last_effect"] = "idle"
+if state["background"] not in backgrounds.BACKGROUND_META:
+    state["background"] = settings["background"] = "none"
+if state["timer"] not in TIMER_STEPS:
+    state["timer"] = settings["timer"] = 3
 state["intensity"] = settings["intensity"] = min(1.6, max(0.4, state["intensity"]))
 
 # How long each moment keeps playing after its gesture stops being seen.
@@ -86,6 +103,14 @@ MOMENT_SECONDS = {
 canvas = document.getElementById("stage")
 ctx = canvas.getContext("2d")
 video = document.getElementById("camera-feed")
+# Scratch canvas the person is cut out on before landing on a background.
+person_canvas = document.createElement("canvas")
+person_ctx = person_canvas.getContext("2d")
+carousel = document.getElementById("carousel")
+hud_top = document.getElementById("hud-top")
+hud_bottom = document.getElementById("hud-bottom")
+
+_CENTER = {"block": "nearest", "inline": "center"}  # smoothness is CSS scroll-behavior
 
 # ------------------------------------------------------------- helpers --
 
@@ -93,10 +118,23 @@ video = document.getElementById("camera-feed")
 def set_canvas_size(w, h):
     canvas.width = w
     canvas.height = h
+    # On desktop the stage is framed in the camera's own shape
+    # (css/stories.css), so nothing is cropped and photos keep full res.
+    stage_wrap = document.getElementById("stage-wrap")
+    stage_wrap.style.setProperty("--cam-w", str(w))
+    stage_wrap.style.setProperty("--cam-h", str(h))
+
+
+def is_mirrored():
+    """The selfie view mirrors (if the setting says so); the back camera never does."""
+    return bool(settings["mirror"]) and state["facing"] == "user"
 
 
 def apply_mirror():
-    canvas.style.transform = "scaleX(-1)" if settings["mirror"] else "scaleX(1)"
+    canvas.style.transform = "scaleX(-1)" if is_mirrored() else "scaleX(1)"
+    document.getElementById("mirror-btn").setAttribute(
+        "aria-pressed", "true" if settings["mirror"] else "false"
+    )
 
 
 def update_readout(frame_state):
@@ -115,43 +153,82 @@ def toast(message):
     el.classList.add("toast--show")
 
 
-_SCROLL_NEAREST = {"block": "nearest", "inline": "nearest"}  # smoothness is CSS scroll-behavior
+# ----------------------------------------------------------------- dial --
 
 
-def build_effect_dock():
-    dock = document.getElementById("effect-dock")
-    dock.innerHTML = ""
-    for number, key in enumerate(EFFECT_ORDER, start=1):
-        meta = EFFECT_META[key]
+def _dial_items():
+    """(key, meta) pairs for whatever the dial is showing."""
+    if state["mode"] == "effects":
+        return [(key, EFFECT_META[key]) for key in EFFECT_ORDER]
+    return [(key, backgrounds.BACKGROUND_META[key]) for key in backgrounds.BACKGROUND_ORDER]
+
+
+def build_dial():
+    """Fills the dial for the current mode and centers the active item."""
+    effects_mode = state["mode"] == "effects"
+    carousel.innerHTML = ""
+    carousel.setAttribute("aria-label", "Effects" if effects_mode else "Backgrounds")
+    for number, (key, meta) in enumerate(_dial_items(), start=1):
         btn = document.createElement("button")
-        active = key == state["effect"]
-        btn.className = "effect-chip" + (" effect-chip--active" if active else "")
-        btn.setAttribute("data-effect", key)
-        btn.setAttribute("aria-pressed", "true" if active else "false")
-        btn.setAttribute("aria-keyshortcuts", str(number))
-        btn.setAttribute("title", f"{meta['label']} · key {number}")
-        btn.innerHTML = (
-            f'<span class="effect-chip__icon">{meta["icon"]}</span>'
-            f'<span class="effect-chip__label">{meta["label"]}</span>'
-        )
-        btn.addEventListener("click", create_proxy(_make_effect_handler(key)))
-        dock.appendChild(btn)
+        btn.className = "dial-item"
+        btn.setAttribute("data-key", key)
+        btn.setAttribute("aria-label", meta["label"])
+        if effects_mode:
+            btn.setAttribute("aria-keyshortcuts", str(number))
+            btn.innerHTML = f'<span aria-hidden="true">{meta["icon"]}</span>'
+        else:
+            btn.style.background = meta["swatch"]
+        carousel.appendChild(btn)
+    document.getElementById("mode-effects").setAttribute("aria-pressed", "true" if effects_mode else "false")
+    document.getElementById("mode-backgrounds").setAttribute("aria-pressed", "false" if effects_mode else "true")
+    mark_active()
 
 
-def _reveal(chip):
-    """Scrolls a chip into the dock's view — a gesture or a restored setting
-    can pick one that's scrolled off, and the dock should show what's live."""
-    chip.scrollIntoView(to_js(_SCROLL_NEAREST, dict_converter=window.Object.fromEntries))
+def mark_active(scroll=True):
+    """Syncs the dial to the active key: its pressed state, the label above
+    the shutter, and — unless the user's finger is what moved it — scrolls
+    it to the middle, under the shutter."""
+    key = state["effect"] if state["mode"] == "effects" else state["background"]
+    document.getElementById("active-label").innerText = dict(_dial_items())[key]["label"]
+    for item in carousel.querySelectorAll(".dial-item"):
+        active = item.getAttribute("data-key") == key
+        item.setAttribute("aria-pressed", "true" if active else "false")
+        if active and scroll:
+            item.scrollIntoView(to_js(_CENTER, dict_converter=window.Object.fromEntries))
 
 
-def _make_effect_handler(key):
-    def handler(evt):
-        set_effect(key, announce=True)
+def choose(key, scroll=True):
+    if state["mode"] == "effects":
+        set_effect(key, scroll=scroll)
+    else:
+        set_background(key, scroll=scroll)
 
-    return handler
+
+_settle_token = [0]
 
 
-def set_effect(key, announce=False):
+async def _settle(token):
+    # A debounced scroll end (`scrollend` isn't in every mobile browser yet):
+    # once the dial has held still for a beat, the item under the shutter wins.
+    await asyncio.sleep(0.14)
+    if token != _settle_token[0]:
+        return
+    box = carousel.getBoundingClientRect()
+    middle = box.left + box.width / 2
+    nearest, best = None, None
+    for item in carousel.querySelectorAll(".dial-item"):
+        r = item.getBoundingClientRect()
+        gap = abs(r.left + r.width / 2 - middle)
+        if best is None or gap < best:
+            nearest, best = item, gap
+    if nearest:
+        choose(nearest.getAttribute("data-key"), scroll=False)
+
+
+# -------------------------------------------------------------- actions --
+
+
+def set_effect(key, announce=False, scroll=True):
     if key == state["effect"]:
         return
     state["effect"] = key
@@ -160,14 +237,24 @@ def set_effect(key, announce=False):
     effects.reset_pools()  # don't leave the old effect's particles hanging
     if key != "hype":
         state["combo"] = 0
-    for chip in document.querySelectorAll(".effect-chip"):
-        active = chip.getAttribute("data-effect") == key
-        chip.classList.toggle("effect-chip--active", active)
-        chip.setAttribute("aria-pressed", "true" if active else "false")
-        if active:
-            _reveal(chip)
+    if state["mode"] == "effects":
+        mark_active(scroll)
     if announce:
         toast(EFFECT_META[key]["label"])
+
+
+def set_background(key, scroll=True):
+    """Switches the virtual background. Falls back to the real room when the
+    segmenter couldn't load on this device, and snaps the dial back to say so."""
+    if key != "none" and getattr(window, "__sbSegmenterState", "loading") == "failed":
+        toast("Backgrounds unavailable here")
+        key, scroll = "none", True
+    if key != state["background"]:
+        state["background"] = settings["background"] = key
+        storage.save_settings(settings)
+        window.__sbSegment = key != "none"
+    if state["mode"] == "backgrounds":
+        mark_active(scroll)
 
 
 def cycle_theme():
@@ -190,7 +277,52 @@ def trigger_moment(name, now):
 
 def shoot():
     asyncio.ensure_future(
-        photobooth.start_countdown(canvas, video, state["effect"], settings["mirror"], notify=toast)
+        photobooth.start_countdown(canvas, state["effect"], is_mirrored(), state["timer"], notify=toast)
+    )
+
+
+def toggle_mirror():
+    settings["mirror"] = not settings["mirror"]
+    storage.save_settings(settings)
+    apply_mirror()
+    toast("Mirror on" if settings["mirror"] else "Mirror off")
+
+
+def show_timer():
+    secs = state["timer"]
+    document.getElementById("timer-value").innerText = f"{secs}s" if secs else "off"
+    document.getElementById("timer-btn").setAttribute(
+        "aria-label", f"Self-timer, {secs} seconds" if secs else "Self-timer off"
+    )
+
+
+def cycle_timer():
+    state["timer"] = TIMER_STEPS[(TIMER_STEPS.index(state["timer"]) + 1) % len(TIMER_STEPS)]
+    settings["timer"] = state["timer"]
+    storage.save_settings(settings)
+    show_timer()
+    toast(f"Timer · {state['timer']}s" if state["timer"] else "Timer off")
+
+
+async def flip_camera():
+    """Front ↔ back. handTracker.js restarts the stream (and puts the old
+    camera back if the new one won't open); a fresh signalbooth:ready then
+    resizes the canvas."""
+    if state["flipping"]:
+        return
+    state["flipping"] = True
+    target = "environment" if state["facing"] == "user" else "user"
+    try:
+        ok = await window.__sbSetFacing(target)
+    finally:
+        state["flipping"] = False
+    if not ok:
+        toast("Couldn't switch camera")
+        return
+    state["facing"] = target
+    apply_mirror()
+    document.getElementById("flip-btn").setAttribute(
+        "aria-label", "Switch to front camera" if target == "environment" else "Switch to back camera"
     )
 
 
@@ -213,8 +345,8 @@ def _filter_targets(effect, moment):
 
 def on_frame(frame_js):
     """Called once per video frame by handTracker.js. This is the app's
-    entire per-frame cycle: read the gesture, react to it, draw the video
-    plus the active effect and any moment on top."""
+    entire per-frame cycle: read the gesture, react to it, draw the camera
+    (or you on a background) plus the active effect and any moment on top."""
     frame = frame_js.to_py()
 
     now = time.time()
@@ -252,23 +384,36 @@ def on_frame(frame_js):
         state["combo"] = 0
         state["combo_since"] = now
 
-    # ---- webcam frame, filtered ----
     targets = _filter_targets(effect, moment)
     for key, target in targets.items():
         filter_amounts[key] = _ease(filter_amounts[key], target, dt)
-
-    ctx.filter = effects.video_filter(filter_amounts)
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    ctx.filter = "none"  # overlays stay sharp over a blurred frame
+    look = effects.video_filter(filter_amounts)
 
     colors = effects.theme_colors(state["theme_index"])
     intensity = state["intensity"]
     w, h = canvas.width, canvas.height
-    # The canvas is displayed with object-fit: cover, so its edges are cropped
-    # off whenever the window isn't the camera's aspect ratio. Effects need to
-    # know what's actually on screen before they place any text.
-    effects.set_safe_box(w, h, canvas.clientWidth, canvas.clientHeight)
-    mirrored = bool(settings["mirror"])
+
+    # ---- webcam frame, or you cut out onto a virtual background ----
+    if state["background"] != "none" and getattr(window, "__sbSegmenterState", "") == "failed":
+        set_background("none")  # the segmenter died mid-session: back to the real room
+        toast("Backgrounds unavailable here")
+    mask = getattr(window, "__sbMask", None)
+    if state["background"] != "none" and mask:
+        backgrounds.draw_background(ctx, state["background"], video, now, w, h, colors, look)
+        backgrounds.composite_person(ctx, person_canvas, person_ctx, mask, video, w, h, look)
+    else:
+        ctx.filter = look
+        ctx.drawImage(video, 0, 0, w, h)
+        ctx.filter = "none"  # overlays stay sharp over a blurred frame
+
+    # The canvas is shown with object-fit: cover, so its edges are cropped
+    # whenever the window isn't the camera's shape, and the HUD bars cover
+    # its top and bottom. Effects need to know what's readable before they
+    # place any text; captures need to know what's visible.
+    effects.set_safe_box(
+        w, h, canvas.clientWidth, canvas.clientHeight, hud_top.offsetHeight, hud_bottom.offsetHeight
+    )
+    mirrored = is_mirrored()
     t = now
 
     # ---- persistent effect ----
@@ -355,6 +500,7 @@ def close_overlays():
         return
     if open_id == "onboarding":
         storage.mark_onboarded()
+    photobooth.close_viewer(refocus=False)
     document.getElementById(open_id).classList.add("hidden")
     document.getElementById("scrim").classList.add("hidden")
     document.querySelector(".stage-wrap").inert = False
@@ -367,9 +513,11 @@ def _on_camera_ready(evt):
     detail = evt.detail
     set_canvas_size(detail.width, detail.height)
     apply_mirror()
+    cameras = getattr(detail, "cameras", 1) or 1
+    document.getElementById("flip-btn").classList.toggle("invisible", cameras < 2)
     document.getElementById("boot-screen").classList.add("hidden")
-    _reveal(document.querySelector(".effect-chip--active"))  # a restored effect may sit off-dock
-    if not storage.is_onboarded():
+    mark_active()  # layout is final now; center whatever was restored
+    if not storage.is_onboarded() and _open_overlay_id() is None:
         open_overlay("onboarding")
 
 
@@ -407,6 +555,42 @@ def on_capture_click(evt):
     shoot()
 
 
+@when("click", "#timer-btn")
+def on_timer_click(evt):
+    cycle_timer()
+
+
+@when("click", "#mirror-btn")
+def on_mirror_click(evt):
+    toggle_mirror()
+
+
+@when("click", "#flip-btn")
+def on_flip_click(evt):
+    asyncio.ensure_future(flip_camera())
+
+
+@when("click", "#mode-effects, #mode-backgrounds")
+def on_mode_click(evt):
+    mode = "effects" if evt.currentTarget.id == "mode-effects" else "backgrounds"
+    if mode != state["mode"]:
+        state["mode"] = mode
+        build_dial()
+
+
+@when("click", "#carousel")
+def on_dial_click(evt):
+    item = evt.target.closest(".dial-item")
+    if item:
+        choose(item.getAttribute("data-key"))
+
+
+@when("scroll", "#carousel")
+def on_dial_scroll(evt):
+    _settle_token[0] += 1
+    asyncio.ensure_future(_settle(_settle_token[0]))
+
+
 @when("click", "#gallery-btn")
 def open_gallery(evt):
     open_overlay("gallery-drawer")  # already current: render_gallery runs on every change
@@ -423,18 +607,33 @@ def close_drawer(evt):
 
 
 def _refocus_strip():
-    # The pressed button is gone after the strip re-renders; keep keyboard
-    # focus in the drawer instead of letting it fall back to <body>.
-    if document.activeElement is None or document.activeElement.tagName == "BODY":
-        document.getElementById("gallery-close").focus()
+    # The pressed button is gone (deleted, or hidden with the viewer); keep
+    # keyboard focus in the drawer instead of letting it fall to <body>.
+    document.getElementById("gallery-close").focus()
 
 
 @when("click", "#gallery-grid")
 def on_gallery_click(evt):
-    btn = evt.target.closest("[data-delete]")
-    if btn:
-        photo_id = btn.getAttribute("data-delete")
-        photobooth.confirm_then(btn, "Sure?", lambda: (photobooth.delete(photo_id), _refocus_strip()))
+    tile = evt.target.closest("[data-open]")
+    if tile:
+        photobooth.open_viewer(tile.getAttribute("data-open"))
+
+
+@when("click", "#viewer-back")
+def on_viewer_back(evt):
+    photobooth.close_viewer()
+
+
+@when("click", "#viewer-share")
+def on_viewer_share(evt):
+    photobooth.share_current(notify=toast)
+
+
+@when("click", "#viewer-delete")
+def on_viewer_delete(evt):
+    photobooth.confirm_then(
+        evt.currentTarget, "Sure?", lambda: (photobooth.delete_current(), _refocus_strip())
+    )
 
 
 @when("click", "#gallery-clear")
@@ -443,13 +642,6 @@ def clear_gallery_click(evt):
     photobooth.confirm_then(
         evt.currentTarget, f"Delete all {count}?", lambda: (photobooth.clear_all(), _refocus_strip())
     )
-
-
-@when("change", "#mirror-toggle")
-def on_mirror_toggle(evt):
-    settings["mirror"] = bool(evt.target.checked)
-    storage.save_settings(settings)
-    apply_mirror()
 
 
 @when("change", "#skeleton-toggle")
@@ -465,7 +657,7 @@ def on_palmhold_toggle(evt):
 
 
 def show_intensity(value):
-    document.getElementById("intensity-value").innerText = f"{value:.1f}\u00d7"
+    document.getElementById("intensity-value").innerText = f"{value:.1f}×"
 
 
 @when("input", "#intensity-slider")
@@ -488,7 +680,8 @@ def on_key(evt):
     owns the key itself — space on a button presses that button."""
     key = (evt.key or "").lower()
     if key == "escape":
-        close_overlays()
+        if not photobooth.close_viewer():  # Esc in the viewer steps back to the grid first
+            close_overlays()
         return
     tag = evt.target.tagName
     if (
@@ -507,11 +700,7 @@ def on_key(evt):
     elif key == "t":
         cycle_theme()
     elif key == "m":
-        el = document.getElementById("mirror-toggle")
-        el.checked = not el.checked
-        settings["mirror"] = bool(el.checked)
-        storage.save_settings(settings)
-        apply_mirror()
+        toggle_mirror()
     elif key in "12345678":
         index = int(key) - 1
         if index < len(EFFECT_ORDER):
@@ -520,8 +709,10 @@ def on_key(evt):
 
 # ------------------------------------------------------------------ init --
 
-build_effect_dock()
-document.getElementById("mirror-toggle").checked = settings["mirror"]
+window.__sbSegment = state["background"] != "none"
+build_dial()
+show_timer()
+apply_mirror()
 document.getElementById("skeleton-toggle").checked = settings["show_skeleton"]
 document.getElementById("palmhold-toggle").checked = settings["palm_shutter"]
 document.getElementById("intensity-slider").value = str(settings["intensity"])

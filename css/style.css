@@ -348,74 +348,10 @@ button {
 .text-btn.is-armed { background: rgba(232, 99, 107, 0.12); }
 
 /* =========================================================================
-   App shell
-   ========================================================================= */
-
-.stage-wrap {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 14px 14px 18px;
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 4px 12px;
-  flex-shrink: 0;
-}
-
-.wordmark {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  margin: 0;
-}
-.wordmark span { color: var(--accent-brass); }
-
-/* =========================================================================
-   Viewport bezel — the instrument's window onto the world
-   ========================================================================= */
-
-.viewport-bezel {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  background: #000;
-  border: 1px solid var(--bg-panel-line);
-  box-shadow:
-    var(--shadow-panel),
-    inset 0 0 0 1px rgba(232, 163, 61, 0.08),
-    inset 0 40px 60px -40px rgba(0, 0, 0, 0.6);
-}
-
-#camera-feed {
-  display: none;
-}
-
-#stage {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1); /* mirrored by default; toggled in JS/CSS var */
-}
-
-/* =========================================================================
    Readout — the signature element: an oscilloscope-style gesture dial
    ========================================================================= */
 
 .readout {
-  position: absolute;
-  top: 14px;
-  left: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -424,7 +360,6 @@ button {
   backdrop-filter: blur(6px);
   border: 1px solid rgba(236, 230, 242, 0.12);
   border-radius: 999px;
-  z-index: 5;
 }
 
 .readout-dial { width: 22px; height: 22px; flex-shrink: 0; }
@@ -542,102 +477,6 @@ button {
   12%  { opacity: 1; transform: translate(-50%, 0); }
   78%  { opacity: 1; transform: translate(-50%, 0); }
   100% { opacity: 0; transform: translate(-50%, -6px); }
-}
-
-/* =========================================================================
-   Console — the control dock
-   ========================================================================= */
-
-.console {
-  flex-shrink: 0;
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.console-group {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  scroll-behavior: smooth;
-  flex: 1;
-  min-width: 0;
-}
-.console-group::-webkit-scrollbar { display: none; }
-
-.console-group--right {
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-
-.effect-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 8px 12px;
-  background: var(--bg-panel);
-  border: 1px solid var(--bg-panel-line);
-  border-radius: 999px;
-  flex-shrink: 0;
-  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.15s var(--ease);
-}
-
-.effect-chip__icon { font-size: 14px; }
-
-.effect-chip__label {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-}
-
-.effect-chip:hover { border-color: var(--accent-violet-dim); }
-.effect-chip:active { transform: scale(0.96); }
-
-.effect-chip--active {
-  background: var(--bg-panel-raised);
-  border-color: var(--accent-violet-dim);
-}
-.effect-chip--active .effect-chip__label { color: var(--accent-violet); }
-
-.capture-btn {
-  flex: 0 0 auto;
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  background: var(--paper);
-  position: relative;
-  box-shadow: 0 4px 0 #cbb98e, 0 8px 20px rgba(0, 0, 0, 0.4);
-  transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease);
-}
-.capture-btn:active {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 #cbb98e, 0 4px 10px rgba(0, 0, 0, 0.4);
-}
-
-.capture-btn__ring {
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  border: 2px solid var(--bg-void);
-  transition: border-color 0.15s var(--ease);
-}
-
-/* Counting down: the ring turns brass and breathes, so a second tap reads
-   as "already shooting" rather than doing nothing. */
-.capture-btn--busy .capture-btn__ring {
-  border-color: var(--accent-brass);
-  animation: ring-breathe 1s ease-in-out infinite;
-}
-
-@keyframes ring-breathe {
-  0%, 100% { inset: 5px; }
-  50% { inset: 9px; }
 }
 
 /* =========================================================================
@@ -766,79 +605,11 @@ input[type="range"] {
   accent-color: var(--accent-brass);
 }
 
-/* Photo strip gallery */
-
-.drawer-body--strip {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-content: start;
-}
-
-.gallery-empty {
-  grid-column: 1 / -1;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink-muted);
-  text-align: center;
-  padding: 40px 10px;
-  line-height: 1.6;
-}
-
-.shot-card {
-  background: var(--paper);
-  border-radius: var(--radius-sm);
-  padding: 6px 6px 10px;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
-  transform: rotate(-1deg);
-}
-.shot-card:nth-child(even) { transform: rotate(1deg); }
-
-.shot-card img {
-  width: 100%;
-  display: block;
-  border-radius: 4px;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-}
-
-.shot-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-}
-
-.shot-link {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 6px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #6b5f42;
-  text-decoration: none;
-  transition: background 0.15s var(--ease), color 0.15s var(--ease);
-}
-.shot-link:hover { background: rgba(107, 95, 66, 0.12); }
-.shot-link--danger { color: #a44a44; }
-.shot-link--danger.is-armed { background: #a44a44; color: var(--paper); }
-
 /* =========================================================================
    Responsive
    ========================================================================= */
 
-/* Phone width: the chip dock was squeezed into whatever the buttons left
-   over (about one chip). Give it its own full-width row above the shutter. */
-@media (max-width: 520px) {
-  .console { flex-wrap: wrap; justify-content: center; row-gap: 12px; }
-  #effect-dock { flex-basis: 100%; }
-}
-
 @media (max-width: 420px) {
-  .capture-btn { width: 56px; height: 56px; }
   .onboarding-card { padding: 24px 20px; }
   .gesture-legend { grid-template-columns: 1fr; }
 }
@@ -853,12 +624,9 @@ input[type="range"] {
   .drawer,
   .scrim,
   .countdown--tick,
-  .capture-btn--busy .capture-btn__ring,
   .flash-play {
     animation: none !important;
   }
-
-  .console-group { scroll-behavior: auto; }
 
   /* The toast still has to appear and then go away, so instead of killing
      its animation it swaps to one that only fades — no movement. */
