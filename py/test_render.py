@@ -26,6 +26,11 @@ assert effects._SAFE["y1"] - effects._SAFE["y0"] > 0, effects._SAFE
 effects.set_safe_box(1280, 720, 1280, 720)
 assert effects.safe_rect() == (0, 0, 1280, 720)
 
+# Client sizes are whole pixels, so a camera-shaped window can compute a
+# visible height of 719.9: that's the full frame, not one row short.
+effects.set_safe_box(1280, 720, 1515, 852)
+assert effects.safe_rect() == (0, 0, 1280, 720), effects.safe_rect()
+
 # Not laid out yet (0×0 client): fall back to the whole frame.
 effects.set_safe_box(1280, 720, 0, 0)
 assert effects.safe_rect() == (0, 0, 1280, 720)

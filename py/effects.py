@@ -126,8 +126,9 @@ def set_safe_box(canvas_w, canvas_h, client_w, client_h, inset_top=0.0, inset_bo
 def safe_rect():
     """The visible part of the canvas as integer (x, y, w, h) — what a
     capture exports, so the photo matches what was on screen."""
-    x0, y0 = int(_VISIBLE["x0"]), int(_VISIBLE["y0"])
-    return x0, y0, max(1, int(_VISIBLE["x1"]) - x0), max(1, int(_VISIBLE["y1"]) - y0)
+    # round, not int: a 719.9px-tall view is the whole frame, not a row short
+    x0, y0 = round(_VISIBLE["x0"]), round(_VISIBLE["y0"])
+    return x0, y0, max(1, round(_VISIBLE["x1"]) - x0), max(1, round(_VISIBLE["y1"]) - y0)
 
 
 def safe_w():
