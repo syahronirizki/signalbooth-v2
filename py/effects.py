@@ -94,22 +94,40 @@ _stars = []
 # no harm, but anything you're meant to read (the thinking pad, the hype
 # counter, every label) has to be placed inside the visible region instead of
 # inside the canvas. main.py refreshes this once per frame.
-_SAFE = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}
+_SAFE = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}  # where text is readable
+_VISIBLE = {"x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0}  # what's on screen at all
 
 
-def set_safe_box(canvas_w, canvas_h, client_w, client_h):
+def set_safe_box(canvas_w, canvas_h, client_w, client_h, inset_top=0.0, inset_bottom=0.0):
+    """Works out which part of the canvas is on screen (object-fit: cover
+    crops it) and, inside that, where text is readable: `inset_top` and
+    `inset_bottom` are the client-pixel heights of the HUD bars drawn over
+    the stage. Captures use the visible box (safe_rect); text uses _SAFE."""
     if not (canvas_w and canvas_h and client_w and client_h):
-        _SAFE.update(x0=0.0, y0=0.0, x1=canvas_w or 1.0, y1=canvas_h or 1.0)
+        _VISIBLE.update(x0=0.0, y0=0.0, x1=canvas_w or 1.0, y1=canvas_h or 1.0)
+        _SAFE.update(_VISIBLE)
         return
     scale = max(client_w / canvas_w, client_h / canvas_h)
     vis_w = min(canvas_w, client_w / scale)
     vis_h = min(canvas_h, client_h / scale)
-    _SAFE.update(
+    _VISIBLE.update(
         x0=(canvas_w - vis_w) / 2,
         x1=(canvas_w + vis_w) / 2,
         y0=(canvas_h - vis_h) / 2,
         y1=(canvas_h + vis_h) / 2,
     )
+    _SAFE.update(_VISIBLE)
+    top, bottom = inset_top / scale, inset_bottom / scale
+    if vis_h - top - bottom >= vis_h * 0.4:  # a HUD taller than the screen can't erase the text box
+        _SAFE["y0"] += top
+        _SAFE["y1"] -= bottom
+
+
+def safe_rect():
+    """The visible part of the canvas as integer (x, y, w, h) — what a
+    capture exports, so the photo matches what was on screen."""
+    x0, y0 = int(_VISIBLE["x0"]), int(_VISIBLE["y0"])
+    return x0, y0, max(1, int(_VISIBLE["x1"]) - x0), max(1, int(_VISIBLE["y1"]) - y0)
 
 
 def safe_w():
