@@ -145,6 +145,7 @@ def open_viewer(photo_id):
     save.setAttribute("download", f"signalbooth-{photo_id}.jpg")
     document.getElementById("viewer-share").classList.toggle("hidden", _viewer["share"] is None)
     document.getElementById("viewer").classList.remove("hidden")
+    _cover_strip(True)
     document.getElementById("viewer-back").focus()
 
 
@@ -156,11 +157,23 @@ def close_viewer(refocus=True):
     if viewer.classList.contains("hidden"):
         return False
     viewer.classList.add("hidden")
+    _cover_strip(False)  # before refocusing: an inert tile can't take focus
     tile = document.querySelector(f'[data-open="{_viewer["id"]}"]')
     _viewer.update(id=None, share=None)
     if refocus and tile:
         tile.focus()
     return True
+
+
+def _cover_strip(covered):
+    """The viewer sits on top of the strip; while it's open, Tab mustn't
+    wander onto the grid or Clear all hidden underneath."""
+    for el in (
+        document.querySelector("#gallery-drawer .drawer-head"),
+        document.getElementById("gallery-grid"),
+        document.getElementById("gallery-clear"),
+    ):
+        el.inert = covered
 
 
 def _share_payload(item):
