@@ -11,3 +11,4 @@
 "./py/effects.py" = "./effects.py"
 "./py/photobooth.py" = "./photobooth.py"
 "./py/storage.py" = "./storage.py"
+"./py/backgrounds.py" = "./backgrounds.py"

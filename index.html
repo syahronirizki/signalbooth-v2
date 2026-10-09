@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#15111a" />
 <title>Signalbooth — Gesture VFX Camera</title>
 <meta name="description" content="A gesture-controlled visual effects camera and photobooth. Runs entirely in your browser — no server, no database." />
 
@@ -18,11 +19,12 @@
 />
 
 <link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/stories.css" />
 </head>
 <body>
 
   <!-- Boot / power-on sequence -->
-  <div id="boot-screen" class="boot-screen">
+  <section id="boot-screen" class="boot-screen" aria-label="Starting up">
     <div class="boot-dial" aria-hidden="true">
       <svg viewBox="0 0 120 120">
         <circle class="boot-dial__track" cx="60" cy="60" r="52" />
@@ -30,20 +32,20 @@
       </svg>
     </div>
     <p class="boot-word">SIGNAL<span>BOOTH</span></p>
-    <p class="boot-status" id="boot-status">warming up…</p>
-  </div>
+    <p class="boot-status" id="boot-status" role="status">warming up…</p>
+  </section>
 
   <!-- Camera / permission error -->
-  <div id="error-screen" class="error-screen hidden">
-    <p class="error-title">Camera unavailable</p>
+  <section id="error-screen" class="error-screen hidden" aria-labelledby="error-title">
+    <p class="error-title" id="error-title">Camera unavailable</p>
     <p class="error-message" id="error-message"></p>
-  </div>
+  </section>
 
   <!-- Onboarding: gesture legend -->
-  <div id="onboarding" class="onboarding hidden">
+  <div id="onboarding" class="onboarding hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
     <div class="onboarding-card">
       <p class="onboarding-eyebrow">How to play it</p>
-      <h1 class="onboarding-title">Signalbooth reads your hand<br />like an instrument.</h1>
+      <h1 class="onboarding-title" id="onboarding-title">Signalbooth reads your hand<br />like an instrument.</h1>
       <ul class="gesture-legend">
         <li><span class="gesture-legend__icon">✌️</span><div><strong>Peace sign</strong><span>Soft focus — the lens blurs</span></div></li>
         <li><span class="gesture-legend__icon">👍</span><div><strong>Thumbs up</strong><span>Hype — likes, confetti, combo</span></div></li>
@@ -58,70 +60,110 @@
         <li><span class="gesture-legend__icon">🙌</span><div><strong>Both palms</strong><span>Portal between hands</span></div></li>
         <li><span class="gesture-legend__icon">📸</span><div><strong>Hold ✋ still</strong><span>Fires the shutter</span></div></li>
       </ul>
-      <p class="onboarding-note">Keys: <kbd>space</kbd> shoot · <kbd>T</kbd> theme · <kbd>M</kbd> mirror · <kbd>1</kbd>–<kbd>8</kbd> effects</p>
+      <p class="onboarding-note">Swipe the dial around the shutter for effects &amp; backgrounds. Keys: <kbd>space</kbd> shoot · <kbd>T</kbd> theme · <kbd>M</kbd> mirror · <kbd>1</kbd>–<kbd>8</kbd> effects · <kbd>esc</kbd> close</p>
       <button id="onboarding-dismiss" class="btn-brass">Got it — start</button>
     </div>
   </div>
 
-  <main class="stage-wrap">
-    <header class="app-header">
-      <p class="wordmark">Signal<span>booth</span></p>
-      <button id="help-btn" class="icon-btn" aria-label="Show gesture guide">?</button>
-    </header>
-
+  <main class="stage-wrap" id="stage-wrap">
     <div class="viewport-bezel">
       <video id="camera-feed" autoplay playsinline muted></video>
       <canvas id="stage"></canvas>
 
-      <div class="readout" id="readout">
-        <svg class="readout-dial" viewBox="0 0 64 64" aria-hidden="true">
-          <circle class="readout-dial__ring" cx="32" cy="32" r="27" />
-          <circle class="readout-dial__pulse" cx="32" cy="32" r="27" />
-        </svg>
-        <span class="readout-label" id="gesture-label">NO SIGNAL</span>
+      <header class="hud-top" id="hud-top">
+        <p class="wordmark">Signal<span>booth</span></p>
+        <div class="readout" id="readout">
+          <svg class="readout-dial" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="readout-dial__ring" cx="32" cy="32" r="27" />
+            <circle class="readout-dial__pulse" cx="32" cy="32" r="27" />
+          </svg>
+          <span class="readout-label" id="gesture-label">NO SIGNAL</span>
+        </div>
+        <button id="help-btn" class="glass-btn" aria-label="Show gesture guide">?</button>
+      </header>
+
+      <div class="tool-rail" role="group" aria-label="Camera tools">
+        <button id="timer-btn" class="glass-btn" aria-label="Self-timer, 3 seconds">
+          <span aria-hidden="true">⏱</span>
+          <span class="glass-btn__value" id="timer-value" aria-hidden="true">3s</span>
+        </button>
+        <button id="mirror-btn" class="glass-btn" aria-label="Mirror view" aria-pressed="true">
+          <span aria-hidden="true">⇋</span>
+        </button>
+        <button id="theme-btn" class="glass-btn icon-btn--theme" data-theme="neon" aria-label="Cycle color theme">
+          <span class="theme-swatch" aria-hidden="true"></span>
+        </button>
+        <button id="settings-btn" class="glass-btn" aria-label="Settings">
+          <span aria-hidden="true">⚙</span>
+        </button>
       </div>
 
       <div class="countdown hidden" id="countdown"></div>
       <div class="flash" id="flash"></div>
-      <p class="toast" id="toast" role="status" aria-live="polite"></p>
-    </div>
 
-    <div class="console">
-      <div class="console-group" id="effect-dock" aria-label="Effects"></div>
-
-      <button id="capture-btn" class="capture-btn" aria-label="Capture photo">
-        <span class="capture-btn__ring"></span>
-      </button>
-
-      <div class="console-group console-group--right">
-        <button id="theme-btn" class="icon-btn icon-btn--theme" data-theme="neon" aria-label="Cycle color theme">
-          <span class="theme-swatch" aria-hidden="true"></span>
-        </button>
-        <button id="gallery-btn" class="icon-btn icon-btn--wide" aria-label="Open your photo strip">Strip</button>
-        <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+      <div class="hud-bottom" id="hud-bottom">
+        <p class="active-label" id="active-label">Idle</p>
+        <div class="dial-row">
+          <button id="gallery-btn" class="last-shot" aria-label="Open your photo strip">
+            <img id="last-shot-img" class="hidden" alt="" />
+            <span class="count-badge" id="strip-count" aria-hidden="true"></span>
+          </button>
+          <div class="dial">
+            <div class="carousel" id="carousel" role="group" aria-label="Effects"></div>
+            <button id="capture-btn" class="shutter" aria-label="Take photo">
+              <span class="shutter__ring" aria-hidden="true"></span>
+            </button>
+          </div>
+          <button id="flip-btn" class="glass-btn flip-btn invisible" aria-label="Switch to back camera">
+            <span aria-hidden="true">⟲</span>
+          </button>
+        </div>
+        <div class="mode-switch" role="group" aria-label="Dial shows">
+          <button id="mode-effects" class="mode-btn" aria-pressed="true">Effects</button>
+          <button id="mode-backgrounds" class="mode-btn" aria-pressed="false">Backgrounds</button>
+        </div>
       </div>
     </div>
   </main>
 
-  <aside id="gallery-drawer" class="drawer hidden" aria-label="Photo strip">
-    <div class="drawer-head">
-      <h2>Your strip</h2>
-      <button id="gallery-close" class="icon-btn" aria-label="Close">×</button>
-    </div>
-    <div class="drawer-body drawer-body--strip" id="gallery-grid"></div>
-    <button id="gallery-clear" class="text-btn">Clear all</button>
+  <!-- Outside the stage: the stage goes inert under drawers, and toasts must still show. -->
+  <aside aria-label="Notifications">
+    <p class="toast" id="toast" role="status" aria-live="polite"></p>
   </aside>
 
-  <aside id="settings-drawer" class="drawer hidden" aria-label="Settings">
+  <div id="scrim" class="scrim hidden"></div>
+
+  <div id="gallery-drawer" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="gallery-title">
     <div class="drawer-head">
-      <h2>Settings</h2>
-      <button id="settings-close" class="icon-btn" aria-label="Close">×</button>
+      <div>
+        <h2 id="gallery-title">Your strip</h2>
+        <p class="drawer-meta" id="gallery-meta"></p>
+      </div>
+      <button id="gallery-close" class="icon-btn" aria-label="Close strip">×</button>
+    </div>
+    <div class="drawer-body drawer-body--grid" id="gallery-grid"></div>
+    <button id="gallery-clear" class="text-btn">Clear all</button>
+
+    <section id="viewer" class="viewer hidden" aria-label="Photo viewer">
+      <div class="viewer-head">
+        <button id="viewer-back" class="icon-btn" aria-label="Back to strip">‹</button>
+        <p class="viewer-meta" id="viewer-meta"></p>
+      </div>
+      <img id="viewer-img" class="viewer-img" alt="" />
+      <div class="viewer-actions">
+        <button id="viewer-share" class="btn-brass viewer-share hidden">Share</button>
+        <a id="viewer-save" class="viewer-action" href="#" download>Save</a>
+        <button id="viewer-delete" class="viewer-action viewer-action--danger">Delete</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="settings-drawer" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="drawer-head">
+      <h2 id="settings-title">Settings</h2>
+      <button id="settings-close" class="icon-btn" aria-label="Close settings">×</button>
     </div>
     <div class="drawer-body">
-      <label class="toggle-row">
-        <span>Mirror view</span>
-        <input type="checkbox" id="mirror-toggle" checked />
-      </label>
       <label class="toggle-row">
         <span>Show hand skeleton</span>
         <input type="checkbox" id="skeleton-toggle" />
@@ -131,16 +173,16 @@
         <input type="checkbox" id="palmhold-toggle" checked />
       </label>
       <label class="slider-row">
-        <span>Effect intensity</span>
+        <span class="slider-row__head">Effect intensity <output id="intensity-value" for="intensity-slider">1.0×</output></span>
         <input type="range" id="intensity-slider" min="0.4" max="1.6" step="0.1" value="1" />
       </label>
     </div>
-  </aside>
+  </div>
 
-  <!-- JS layer: owns the camera + the ML hand/gesture model only -->
+  <!-- JS layer: owns the camera + the ML models only -->
   <script type="module" src="js/handTracker.js"></script>
 
-  <!-- Python layer: owns gestures, VFX, DOM, photobooth, localStorage -->
+  <!-- Python layer: owns gestures, VFX, backgrounds, DOM, photobooth, localStorage -->
   <script type="py" src="py/main.py" config="pyscript.toml"></script>
 
 </body>

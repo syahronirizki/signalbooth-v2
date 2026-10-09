@@ -1,0 +1,522 @@
+/* =========================================================================
+   Signalbooth — Stories camera layer
+   Everything specific to the camera screen: the full-bleed stage, the
+   frosted-glass HUD over it, the dial (effect / background carousel around
+   the shutter), bottom sheets, the strip grid and the photo viewer.
+   Design tokens live in style.css; these are the camera-only additions.
+   ========================================================================= */
+
+:root {
+  --glass: rgba(21, 17, 26, 0.42);
+  --glass-line: rgba(236, 230, 242, 0.16);
+  --glow-brass: 0 0 22px rgba(232, 163, 61, 0.45);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --signal: conic-gradient(from 0deg, var(--accent-brass), var(--accent-violet), #e8636b, var(--accent-brass));
+  --dial-item: 56px;
+  --shutter: 82px;
+  --edge-l: max(14px, env(safe-area-inset-left));
+  --edge-r: max(14px, env(safe-area-inset-right));
+  --edge-t: max(12px, env(safe-area-inset-top));
+  --edge-b: max(14px, env(safe-area-inset-bottom));
+}
+
+/* Ambient glow behind the stage, seen around the desktop frame. The body
+   goes transparent so this layer (z-index -1) isn't painted over; the html
+   element keeps the base color. */
+body { background: transparent; }
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  background:
+    radial-gradient(40% 35% at 25% 30%, rgba(232, 163, 61, 0.16), transparent 70%),
+    radial-gradient(45% 40% at 75% 70%, rgba(139, 127, 240, 0.2), transparent 70%);
+  animation: ambient-drift 24s ease-in-out infinite alternate;
+}
+
+@keyframes ambient-drift {
+  to { transform: translate(4%, -3%) rotate(8deg); }
+}
+
+/* ---- stage ------------------------------------------------------------ */
+
+.stage-wrap {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+
+.viewport-bezel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+#camera-feed { display: none; }
+
+#stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* mirrored by default; main.py sets the real value */
+}
+
+/* Vignettes keep the HUD readable over a bright room. */
+.viewport-bezel::before,
+.viewport-bezel::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.viewport-bezel::before { top: 0; height: 120px; background: linear-gradient(rgba(10, 8, 13, 0.55), transparent); }
+.viewport-bezel::after { bottom: 0; height: 260px; background: linear-gradient(transparent, rgba(10, 8, 13, 0.72)); }
+
+/* Desktop: a floating frame in the camera's own shape (main.py sets
+   --cam-w / --cam-h), so nothing is cropped and photos keep full res. */
+@media (min-width: 768px) {
+  .stage-wrap { padding: 24px; }
+
+  .viewport-bezel {
+    width: min(100%, calc((100dvh - 48px) * var(--cam-w, 16) / var(--cam-h, 9)));
+    height: auto;
+    aspect-ratio: var(--cam-w, 16) / var(--cam-h, 9);
+    border-radius: var(--radius-lg);
+    /* The frame line is a shadow ring, not a border: a border would shrink the
+       canvas box off the camera's shape and crop a pixel row from photos. */
+    box-shadow: 0 0 0 1px var(--bg-panel-line), var(--shadow-panel), 0 0 80px rgba(139, 127, 240, 0.14);
+  }
+}
+
+/* ---- top bar + tool rail --------------------------------------------- */
+
+.hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--edge-t) var(--edge-r) 0 var(--edge-l);
+}
+
+.wordmark {
+  margin: 0 auto 0 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+.wordmark span { color: var(--accent-brass); }
+
+.hud-top .readout { min-width: 0; }
+.readout-label { overflow: hidden; text-overflow: ellipsis; }
+
+.glass-btn {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  color: var(--paper);
+  font-size: 17px;
+  line-height: 1;
+  transition: transform 0.25s var(--spring), border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.glass-btn:hover { border-color: rgba(232, 163, 61, 0.5); }
+.glass-btn:active { transform: scale(0.9); }
+.glass-btn[aria-pressed="true"] { border-color: var(--accent-brass); box-shadow: var(--glow-brass); }
+.glass-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
+
+.glass-btn__value {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--accent-brass);
+}
+
+.invisible { visibility: hidden; }
+
+.tool-rail {
+  position: absolute;
+  top: calc(var(--edge-t) + 60px);
+  right: var(--edge-r);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---- bottom HUD: label, dial, mode switch ----------------------------- */
+
+.hud-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--edge-r) var(--edge-b) var(--edge-l);
+}
+
+.active-label {
+  margin: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--paper);
+  text-shadow: 0 0 18px rgba(232, 163, 61, 0.55), 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.dial-row {
+  width: 100%;
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: 48px 1fr 48px;
+  align-items: center;
+  gap: 8px;
+}
+
+.dial {
+  position: relative;
+  min-width: 0;
+  height: var(--shutter);
+  display: flex;
+  align-items: center;
+}
+
+/* The carousel: native scroll-snap, padded so the first and last items can
+   reach the middle. Edges fade out so it reads as a wheel, not a list. */
+.carousel {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  padding: 12px calc(50% - var(--dial-item) / 2);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+}
+.carousel::-webkit-scrollbar { display: none; }
+
+.dial-item {
+  flex: 0 0 var(--dial-item);
+  height: var(--dial-item);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  scroll-snap-align: center;
+  font-size: 26px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: transform 0.25s var(--spring), opacity 0.2s var(--ease);
+}
+.dial-item[aria-pressed="false"] { transform: scale(0.82); opacity: 0.85; }
+
+/* The shutter sits over the middle of the dial. Its ring is a brass→violet
+   conic gradient punched into a ring by a mask, so the active item shows
+   through the middle — tap it to shoot. */
+.shutter {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: var(--shutter);
+  height: var(--shutter);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 26px rgba(232, 163, 61, 0.35);
+  transition: transform 0.2s var(--spring);
+}
+.shutter:active { transform: translate(-50%, -50%) scale(0.92); }
+/* The focused dial item sits under the shutter, so the ring shows its focus. */
+.dial:has(.dial-item:focus-visible) .shutter { outline: 2px solid var(--accent-brass); outline-offset: 4px; }
+
+.shutter__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--signal);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+}
+.shutter--busy .shutter__ring { animation: ring-spin 1s linear infinite; }
+
+@keyframes ring-spin {
+  to { transform: rotate(1turn); }
+}
+
+.last-shot {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 2px solid var(--paper);
+  background: var(--glass);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: transform 0.25s var(--spring);
+}
+.last-shot:active { transform: scale(0.9); }
+.last-shot img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+.last-shot .count-badge { position: absolute; top: -8px; right: -8px; }
+.last-shot--pop { animation: shot-pop 0.5s var(--spring); }
+
+@keyframes shot-pop {
+  from { transform: scale(0.6) rotate(-8deg); }
+  to { transform: scale(1) rotate(0); }
+}
+
+.flip-btn { justify-self: end; }
+
+.mode-switch { display: flex; gap: 4px; }
+
+.mode-btn {
+  position: relative;
+  min-height: 44px;
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(236, 230, 242, 0.62);
+  transition: color 0.15s var(--ease);
+}
+.mode-btn[aria-pressed="true"] { color: var(--paper); }
+.mode-btn[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent-brass);
+  box-shadow: var(--glow-brass);
+}
+
+/* ---- countdown + toast, restyled for the camera ----------------------- */
+
+.countdown {
+  font-size: 150px;
+  color: transparent;
+  background: var(--signal);
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.5));
+}
+
+/* Fixed above the drawers (z 40) so a toast fired while one is open, like
+   "Couldn't share", is still seen; top-center keeps it clear of the dial. */
+.toast {
+  position: fixed;
+  top: calc(var(--edge-t) + 64px);
+  bottom: auto;
+  z-index: 45;
+}
+
+/* ---- bottom sheets (phones) ------------------------------------------ */
+
+.drawer-body { min-height: 0; }
+
+@media (max-width: 767px) {
+  .drawer {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 86dvh;
+    border-left: none;
+    border-top: 1px solid var(--bg-panel-line);
+    border-radius: 22px 22px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-in 0.34s var(--spring);
+  }
+
+  /* Sized by content, the sheet would squeeze the viewer to one grid row's height. */
+  .drawer:has(.viewer:not(.hidden)) { height: 86dvh; }
+
+  .drawer::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 10px auto 0;
+    border-radius: 2px;
+    background: var(--bg-panel-line);
+  }
+}
+
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* ---- strip grid + viewer ---------------------------------------------- */
+
+.drawer-body--grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  align-content: start;
+}
+
+.shot-tile {
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg-panel-raised);
+}
+.shot-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s var(--ease);
+}
+.shot-tile:hover img { transform: scale(1.04); }
+
+.gallery-empty {
+  grid-column: 1 / -1;
+  padding: 40px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--ink-muted);
+}
+
+.viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: inherit;
+}
+
+.viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--bg-panel-line);
+}
+
+.viewer-meta {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.viewer-img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.viewer-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.viewer-share { width: auto; flex: 1; }
+
+.viewer-action {
+  flex: 1;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bg-panel-line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+}
+.viewer-action--danger { color: var(--danger); }
+.viewer-action--danger.is-armed { background: var(--danger); border-color: var(--danger); color: var(--bg-void); }
+
+/* ---- short screens (a phone on its side, a small window) -------------- */
+/* The rail lies down in the top bar instead of running into the dial. */
+
+@media (max-height: 560px) {
+  .tool-rail {
+    top: var(--edge-t);
+    right: calc(var(--edge-r) + 54px);
+    flex-direction: row;
+    gap: 8px;
+  }
+  .hud-top .wordmark { margin-right: 0; }
+  .hud-top .readout { margin-right: auto; }
+  .active-label { display: none; }
+}
+
+/* ---- motion ------------------------------------------------------------ */
+
+@supports (animation-timeline: view()) {
+  /* Where animation can follow scroll position, items grow as they near
+     the shutter — the Stories-dial zoom, with no JS per frame. Never below
+     0.8 so every item keeps a 44px tap target. */
+  .dial-item {
+    animation: dial-focus linear both;
+    animation-timeline: view(inline);
+  }
+
+  @keyframes dial-focus {
+    0%, 100% { transform: scale(0.8); opacity: 0.6; }
+    50% { transform: scale(1); opacity: 1; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .dial-item,
+  .shutter--busy .shutter__ring,
+  .last-shot--pop,
+  .drawer {
+    animation: none !important;
+  }
+
+  .carousel { scroll-behavior: auto; }
+}

@@ -21,8 +21,8 @@ vs backend":
 
 | Layer | Language | Responsibility |
 |---|---|---|
-| `js/handTracker.js` | JavaScript | Owns the webcam and MediaPipe's `GestureRecognizer` model. Nothing else. |
-| `py/*.py` (via PyScript) | Python, running client-side in the browser | Gesture interpretation, the VFX render loop, all DOM manipulation, the photobooth flow, and `localStorage`. |
+| `js/handTracker.js` | JavaScript | Owns the webcam and MediaPipe's models: `GestureRecognizer` for hands, and `ImageSegmenter` (selfie) for the person mask while a virtual background is on. Nothing else. |
+| `py/*.py` (via PyScript) | Python, running client-side in the browser | Gesture interpretation, the VFX render loop, virtual-background compositing, all DOM manipulation, the photobooth flow, and `localStorage`. |
 
 Concretely: `handTracker.js` calls `window.__sbFrameCallback` once per
 video frame with a plain object — hand landmarks and MediaPipe's
@@ -70,18 +70,22 @@ frame.
 
 ```
 signalbooth/
-├── index.html            page shell: viewport, console, drawers, overlays
+├── index.html            page shell: camera HUD, dial, drawers, overlays
 ├── pyscript.toml         mounts py/*.py onto PyScript's virtual filesystem
 ├── css/
-│   └── style.css         design system (see "Design" below)
+│   ├── style.css         design system (see "Design" below)
+│   └── stories.css       the camera screen: stage, HUD, dial, sheets, viewer
 ├── js/
-│   └── handTracker.js    webcam + MediaPipe GestureRecognizer only
+│   └── handTracker.js    webcam + MediaPipe GestureRecognizer + selfie segmenter
 └── py/
-    ├── main.py           entry point — wiring, event handlers, render loop
+    ├── main.py           entry point — wiring, event handlers, render loop, dial
     ├── gestures.py        landmark geometry, debouncing, custom detectors
     ├── effects.py          the VFX: every effect and moment, plus the safe box
-    ├── photobooth.py       countdown, capture, gallery DOM
-    └── storage.py           localStorage read/write for settings + gallery
+    ├── backgrounds.py      virtual-background scenes + person compositing
+    ├── photobooth.py       timer, capture, strip grid, viewer + share
+    ├── storage.py           localStorage read/write for settings + gallery
+    ├── test_storage.py      self-check: `python3 py/test_storage.py`
+    └── test_render.py       self-check: `python3 py/test_render.py`
 ```
 
 ## Running it
@@ -139,18 +143,48 @@ Taking a photo:
 | Action | What happens |
 |---|---|
 | Hold ✋ still for ~1.8s | Fires the shutter, hands-free. A ring fills while you hold, so the wait has feedback. Turn it off in Settings. |
-| The shutter button | Same countdown, no gesture needed |
+| The shutter (the ring in the middle of the dial) | Same, no gesture needed |
 | <kbd>space</kbd> | Same again |
+
+The self-timer on the right-hand rail cycles 3s → 10s → off. Every capture
+is cropped to what's on screen and lands as the thumbnail bottom-left; tap
+it for your strip, and tap a shot to view it, **Share** it (where the
+browser can share files), **Save** it, or delete it.
 
 > **Moved in this version:** ✌️ used to take the photo. It drives Soft
 > Focus now, and the shutter moved to the palm-hold above. Theme cycling
 > used to be a pinch; a pinch now reads as 👌 or 🫰, so themes moved to the
-> swatch button next to **Strip**.
+> swatch button on the right-hand tool rail.
 
-Effects can also be switched by hand from the chip dock at the bottom of
-the screen — gestures aren't the only way in. Keyboard: <kbd>space</kbd>
+Effects can also be picked from the **dial** — swipe the carousel around
+the shutter; whatever comes to rest under the shutter is live. **Effects ·
+Backgrounds** below it switches what the dial holds. Keyboard: <kbd>space</kbd>
 shoot, <kbd>T</kbd> theme, <kbd>M</kbd> mirror, <kbd>1</kbd>–<kbd>8</kbd>
-effects.
+effects, <kbd>esc</kbd> closes the guide or a drawer. Shortcuts stand down
+while a drawer is open or a control is focused (space on a focused button
+presses that button).
+
+Deleting a shot or clearing the strip takes two taps — the first arms the
+button, the second (within 3s) does it.
+
+## The camera screen
+
+Laid out like a Stories camera. On a phone the camera fills the screen and
+everything floats over it on frosted glass: the gesture readout up top, a
+tool rail on the right (self-timer, mirror, theme, settings), and the
+**dial** at the bottom — a swipeable carousel with the shutter fixed in
+the middle, your last shot on the left, and a front/back camera switch on
+the right when the device has two cameras. On desktop the same UI sits in
+a frame shaped like the camera, so nothing is cropped.
+
+## Virtual backgrounds
+
+Switch the dial to **Backgrounds** to swap the room behind you: Portrait
+Blur, Neon City, Sunset, or Aurora (**Room** turns it off). MediaPipe's
+selfie segmenter finds you in each frame and `py/backgrounds.py`
+composites you over the scene — live, and in the saved photo. The scenes
+are drawn in code and follow the color theme. The segmenter only runs
+while a background is on.
 
 ## Design
 
@@ -201,6 +235,10 @@ Two details that took more care than they look like they did:
   `py/main.py`, give it a target in `_filter_targets()`, and render it in
   `video_filter()`. It eases automatically.
 - **Color themes:** edit `THEMES` in `py/effects.py`.
+- **Add a background:** write a `_my_scene(ctx, t, w, h, colors)` in
+  `py/backgrounds.py`, add it to `BACKGROUND_ORDER` / `BACKGROUND_META`
+  (a label and a CSS swatch for the dial), and dispatch it in
+  `draw_background()`.
 - **Particle budget / performance:** the `MAX_*` caps at the top of
   `py/effects.py` are the main knobs if a device struggles.
 
@@ -209,8 +247,12 @@ Two details that took more care than they look like they did:
 - Needs an internet connection on first load (CDN-hosted runtime + model);
   it isn't a fully offline app.
 - `localStorage` has a browser-enforced size limit (usually 5–10MB), so
-  the gallery caps itself at the 24 most recent shots and drops older
-  ones if storage fills up — see `MAX_GALLERY_ITEMS` in `py/storage.py`.
+  the gallery caps itself at the 24 most recent shots — see
+  `MAX_GALLERY_ITEMS` in `py/storage.py`. If the quota fills first, it
+  drops the oldest shots one at a time until the new one fits, and the
+  toast after each capture says so (or says the shot wasn't saved). The
+  strip is parsed once per page load and kept in memory; settings read
+  back from storage are type-checked against their defaults.
 - The webcam filters (Soft Focus, Rain Mood) use the canvas `filter`
   property. It's supported in current Chrome, Edge, Firefox and Safari 17+;
   on anything older those two effects lose their tint and keep only their
@@ -218,9 +260,16 @@ Two details that took more care than they look like they did:
 - Two hands are tracked and 🫶 / ✋✋ use both, but the single-hand effects
   follow the first hand MediaPipe reports.
 - Effects are modes: Soft Focus stays blurred and Rain Mood stays gray
-  after you lower your hand, until another gesture or the Idle chip
+  after you lower your hand, until another gesture or the Idle item on the dial
   switches away. That's deliberate — it's what makes them usable as a look
   rather than a flash.
+- Virtual backgrounds run a second model every frame; on older phones
+  that can cost frame rate — pick **Room** to switch it off. If a scene
+  ever shows *on* you instead of behind you, the model's mask is inverted:
+  change `values[i]` to `1 - values[i]` in `updateMask()` in
+  `js/handTracker.js`.
+- **Share** needs a browser that can share files (`navigator.canShare`);
+  elsewhere the button is hidden and **Save** still downloads.
 
 ## Roadmap ideas
 
