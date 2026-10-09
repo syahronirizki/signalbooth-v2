@@ -357,8 +357,7 @@ button {
   align-items: center;
   gap: 8px;
   padding: 6px 12px 6px 6px;
-  background: rgba(21, 17, 26, 0.55);
-  backdrop-filter: blur(6px);
+  background: rgba(21, 17, 26, 0.62);
   border: 1px solid rgba(236, 230, 242, 0.12);
   border-radius: 999px;
 }
@@ -457,8 +456,7 @@ button {
   margin: 0;
   padding: 7px 16px;
   border-radius: 999px;
-  background: rgba(21, 17, 26, 0.72);
-  backdrop-filter: blur(8px);
+  background: rgba(21, 17, 26, 0.8);
   border: 1px solid rgba(232, 163, 61, 0.35);
   font-family: var(--font-mono);
   font-size: 11px;

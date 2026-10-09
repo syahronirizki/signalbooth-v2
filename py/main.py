@@ -521,7 +521,10 @@ def close_overlays():
 
 
 def _on_camera_ready(evt):
-    detail = evt.detail
+    _camera_ready(evt.detail)
+
+
+def _camera_ready(detail):
     state["ready"] = True
     set_canvas_size(detail.width, detail.height)
     apply_mirror()
@@ -766,3 +769,8 @@ document.getElementById("theme-btn").setAttribute(
     "data-theme", effects.theme_name(state["theme_index"])
 )
 photobooth.render_gallery()
+
+# The camera now starts alongside Python's own boot and can win the race; if
+# its ready event already fired, nobody was listening, so catch up here.
+if getattr(window, "__sbCamera", None):
+    _camera_ready(window.__sbCamera)

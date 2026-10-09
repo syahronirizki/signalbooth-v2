@@ -8,3 +8,4 @@ node_modules/
 # local dev server config
 .claude/launch.json
 __pycache__/
+.wrangler/
