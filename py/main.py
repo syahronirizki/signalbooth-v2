@@ -51,6 +51,7 @@ state = {
     "facing": "user",  # not persisted: the app always opens on the selfie camera
     "mode": "effects",  # what the dial shows: "effects" or "backgrounds"
     "flipping": False,
+    "ready": False,  # camera running; shots before that would be a blank 1×1
     "theme_index": settings["theme_index"],
     "intensity": settings["intensity"],
     "last_frame_t": time.time(),
@@ -132,9 +133,9 @@ def is_mirrored():
 
 def apply_mirror():
     canvas.style.transform = "scaleX(-1)" if is_mirrored() else "scaleX(1)"
-    document.getElementById("mirror-btn").setAttribute(
-        "aria-pressed", "true" if settings["mirror"] else "false"
-    )
+    btn = document.getElementById("mirror-btn")
+    btn.setAttribute("aria-pressed", "true" if is_mirrored() else "false")
+    btn.disabled = state["facing"] != "user"  # the back camera never mirrors
 
 
 def update_readout(frame_state):
@@ -208,10 +209,10 @@ def choose(key, scroll=True):
 _settle_token = [0]
 
 
-async def _settle(token):
+async def _settle(token, delay=0.14):
     # A debounced scroll end (`scrollend` isn't in every mobile browser yet):
     # once the dial has held still for a beat, the item under the shutter wins.
-    await asyncio.sleep(0.14)
+    await asyncio.sleep(delay)
     if token != _settle_token[0]:
         return
     box = carousel.getBoundingClientRect()
@@ -277,12 +278,17 @@ def trigger_moment(name, now):
 
 
 def shoot():
+    if not state["ready"]:
+        return
     asyncio.ensure_future(
         photobooth.start_countdown(canvas, state["effect"], is_mirrored(), state["timer"], notify=toast)
     )
 
 
 def toggle_mirror():
+    if state["facing"] != "user":
+        toast("Back camera isn't mirrored")
+        return
     settings["mirror"] = not settings["mirror"]
     storage.save_settings(settings)
     apply_mirror()
@@ -516,6 +522,7 @@ def close_overlays():
 
 def _on_camera_ready(evt):
     detail = evt.detail
+    state["ready"] = True
     set_canvas_size(detail.width, detail.height)
     apply_mirror()
     cameras = getattr(detail, "cameras", 1) or 1
@@ -595,7 +602,11 @@ def on_dial_key(evt):
     current = state["effect"] if state["mode"] == "effects" else state["background"]
     target = keys[max(0, min(len(keys) - 1, keys.index(current) + step))]
     choose(target)
-    carousel.querySelector(f'[data-key="{target}"]').focus()
+    # preventScroll: focus's own scroll-into-view would cut short choose()'s
+    # smooth centering, and the settle would then snap back to the old item.
+    carousel.querySelector(f'[data-key="{target}"]').focus(
+        to_js({"preventScroll": True}, dict_converter=window.Object.fromEntries)
+    )
 
 
 @when("click", "#carousel")
@@ -605,10 +616,24 @@ def on_dial_click(evt):
         choose(item.getAttribute("data-key"))
 
 
+# Where the browser fires `scrollend`, it marks the true end of a swipe and its
+# snap; a finger pausing mid-drag shouldn't pick whatever is passing under the
+# shutter. Elsewhere a short lull in scroll events stands in for it.
+_HAS_SCROLLEND = hasattr(window, "onscrollend")
+
+
 @when("scroll", "#carousel")
 def on_dial_scroll(evt):
+    if _HAS_SCROLLEND:
+        return
     _settle_token[0] += 1
     asyncio.ensure_future(_settle(_settle_token[0]))
+
+
+@when("scrollend", "#carousel")
+def on_dial_scrollend(evt):
+    _settle_token[0] += 1
+    asyncio.ensure_future(_settle(_settle_token[0], 0))
 
 
 @when("click", "#gallery-btn")

@@ -145,6 +145,7 @@ body::before {
 .glass-btn:hover { border-color: rgba(232, 163, 61, 0.5); }
 .glass-btn:active { transform: scale(0.9); }
 .glass-btn[aria-pressed="true"] { border-color: var(--accent-brass); box-shadow: var(--glow-brass); }
+.glass-btn:disabled { opacity: 0.45; cursor: default; transform: none; }
 
 .glass-btn__value {
   margin-top: 2px;
