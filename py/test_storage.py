@@ -17,7 +17,9 @@ class FakeLocalStorage:
         return self.data.get(key)
 
     def setItem(self, key, value):
-        if len(value) > self.quota:
+        # One quota across all keys, like a browser's localStorage.
+        others = sum(len(v) for k, v in self.data.items() if k != key)
+        if others + len(value) > self.quota:
             raise Exception("QuotaExceededError")
         self.data[key] = value
 
@@ -62,6 +64,15 @@ assert json.loads(ls.data[storage.GALLERY_KEY]) == kept  # cache matches what's 
 before = ls.data[storage.GALLERY_KEY]
 assert storage.add_photo("x" * 5000, "aura") is None
 assert ls.data[storage.GALLERY_KEY] == before and len(storage.load_gallery()) == len(kept)
+
+# Once the strip has filled the quota, a slightly longer settings write must
+# still fit — the strip leaves headroom when it has to drop shots.
+fresh()
+for _ in range(8):
+    storage.add_photo(shot, "aura")
+assert storage.save_settings(dict(storage.DEFAULT_SETTINGS, last_effect="softfocus", background="aurora"))
+assert storage.load_settings()["background"] == "aurora"
+kept = storage.load_gallery()
 
 # Delete and clear go all the way to an empty, stored list.
 assert storage.delete_photo(kept[0]["id"]) == 0 and len(storage.load_gallery()) == len(kept) - 1

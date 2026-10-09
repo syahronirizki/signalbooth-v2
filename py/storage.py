@@ -112,6 +112,12 @@ def save_gallery(items):
     for dropped in range(max(1, len(items))):
         kept = items[dropped:]
         if _set_raw(GALLERY_KEY, json.dumps(kept)):
+            if dropped and len(kept) > 1:
+                # We're at the quota's edge: give up one more shot so small
+                # writes (settings) still fit. A shrinking write can't fail.
+                kept = kept[1:]
+                _set_raw(GALLERY_KEY, json.dumps(kept))
+                dropped += 1
             _gallery = kept
             return dropped
     return None
