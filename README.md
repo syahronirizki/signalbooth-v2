@@ -6,6 +6,9 @@ reads a signal, paints a live effect over the video feed, and doubles as
 a photobooth you can capture and keep a strip of shots from. No server,
 no database: everything is static files plus `localStorage`.
 
+**Live:** <https://signalbooth.r-sites.workers.dev> — open it on a
+phone or laptop and allow the camera.
+
 Throw a ✌️ and the lens goes soft. A 👍 brings confetti and a combo
 counter. A 👌 puts a thinking pad on screen insisting *"its im fine,
 gwenchana!"* And 🫶 rains hearts in every color while **I LOVE U** rises
