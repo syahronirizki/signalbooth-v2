@@ -7,7 +7,10 @@
    ========================================================================= */
 
 :root {
-  --glass: rgba(21, 17, 26, 0.42);
+  /* Flat tint, no backdrop-filter: a blur over a canvas that repaints 30
+     times a second is re-blurred every frame, and on phones that cost more
+     than the camera itself. */
+  --glass: rgba(21, 17, 26, 0.58);
   --glass-line: rgba(236, 230, 242, 0.16);
   --glow-brass: 0 0 22px rgba(232, 163, 61, 0.45);
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -135,8 +138,6 @@ body::before {
   border-radius: 50%;
   background: var(--glass);
   border: 1px solid var(--glass-line);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
   color: var(--paper);
   font-size: 17px;
   line-height: 1;
@@ -237,8 +238,6 @@ body::before {
   font-size: 26px;
   background: var(--glass);
   border: 1px solid var(--glass-line);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
   transition: transform 0.25s var(--spring), opacity 0.2s var(--ease);
 }
 .dial-item[aria-pressed="false"] { transform: scale(0.82); opacity: 0.85; }

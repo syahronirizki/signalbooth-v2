@@ -109,6 +109,10 @@ PyScript runtime, Pyodide, and the MediaPipe model from their CDNs, so it
 needs an internet connection and takes a few seconds — that's the
 "warming up" boot screen.
 
+**Deploy:** `npx wrangler deploy` publishes the folder as static assets on
+Cloudflare Workers (`wrangler.jsonc`); `.assetsignore` keeps docs, tests
+and tooling off the CDN.
+
 **Browser support:** recent Chrome, Edge, or Firefox. MediaPipe's WASM +
 GPU delegate path is the best-tested target; if effects look sluggish,
 the delegate in `js/handTracker.js` can be switched from `"GPU"` to
@@ -170,7 +174,7 @@ button, the second (within 3s) does it.
 ## The camera screen
 
 Laid out like a Stories camera. On a phone the camera fills the screen and
-everything floats over it on frosted glass: the gesture readout up top, a
+everything floats over it on tinted glass: the gesture readout up top, a
 tool rail on the right (self-timer, mirror, theme, settings), and the
 **dial** at the bottom — a swipeable carousel with the shutter fixed in
 the middle, your last shot on the left, and a front/back camera switch on
@@ -183,8 +187,9 @@ Switch the dial to **Backgrounds** to swap the room behind you: Portrait
 Blur, Neon City, Sunset, or Aurora (**Room** turns it off). MediaPipe's
 selfie segmenter finds you in each frame and `py/backgrounds.py`
 composites you over the scene — live, and in the saved photo. The scenes
-are drawn in code and follow the color theme. The segmenter only runs
-while a background is on.
+are drawn in code and follow the color theme. The segmenter is only
+downloaded the first time you pick a background, and only runs while one
+is on.
 
 ## Design
 

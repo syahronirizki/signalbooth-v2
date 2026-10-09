@@ -13,8 +13,10 @@
  * The rest of the contract with Python, all on `window`:
  *   __sbSegment         Python sets true while a background is selected
  *   __sbMask            canvas whose alpha means "this pixel is you"
- *   __sbSegmenterState  "loading" | "ready" | "failed"
+ *   __sbSegmenterState  "idle" | "loading" | "ready" | "failed"
  *   __sbSetFacing(f)    async; "user" | "environment"; resolves true/false
+ *   __sbCamera          the latest signalbooth:ready detail, for a Python
+ *                       that boots after the event already fired
  */
 
 import {
@@ -30,6 +32,7 @@ const SEGMENTER_URL =
 
 const video = document.getElementById("camera-feed");
 
+let vision = null;
 let gestureRecognizer = null;
 let segmenter = null;
 let stream = null;
@@ -43,7 +46,7 @@ let maskImage = null;
 
 window.__sbSegment ??= false; // Python may have set this first; don't clobber it
 window.__sbMask = null;
-window.__sbSegmenterState = "loading";
+window.__sbSegmenterState = "idle"; // loaded on first use: most sessions never pick a background
 
 function setBootStatus(text) {
   const el = document.getElementById("boot-status");
@@ -58,7 +61,8 @@ function showError(message) {
   screen?.classList.remove("hidden");
 }
 
-async function initSegmenter(vision) {
+async function initSegmenter() {
+  window.__sbSegmenterState = "loading";
   try {
     segmenter = await ImageSegmenter.createFromOptions(vision, {
       baseOptions: { modelAssetPath: SEGMENTER_URL, delegate: "GPU" },
@@ -76,22 +80,36 @@ async function initSegmenter(vision) {
 async function startCamera(nextFacing, strict = false) {
   // Phones can't always hold two cameras open at once, so release the old
   // stream before asking for the new one.
+  const previousId = stream?.getVideoTracks()[0]?.getSettings().deviceId;
   stream?.getTracks().forEach((track) => track.stop());
-  // Ask for a frame shaped like the screen: a phone held upright gets a
-  // portrait stream, so photos aren't a thin slice of a landscape frame.
-  const portrait = matchMedia("(orientation: portrait)").matches;
-  stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      // A switch must really land on the other camera; a plain facingMode is
-      // only a preference and quietly hands back whatever camera exists.
-      facingMode: strict ? { exact: nextFacing } : nextFacing,
-      width: { ideal: portrait ? 720 : 1280 },
-      height: { ideal: portrait ? 1280 : 720 },
-    },
-    audio: false,
-  });
+  // Always ask in the sensor's own landscape terms. Phones rotate the frames
+  // themselves and hand back a portrait stream when held upright; asking for
+  // portrait sizes instead makes them crop a narrow slice out of the sensor,
+  // which is the "zoomed in" look.
+  const size = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  try {
+    // A switch must really land on the other camera; a plain facingMode is
+    // only a preference and quietly hands back whatever camera exists.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { ...size, facingMode: strict ? { exact: nextFacing } : nextFacing },
+      audio: false,
+    });
+  } catch (err) {
+    // Some phones don't label their cameras' facing at all, so `exact` can
+    // never match. Any camera other than the one just used is the flip.
+    if (!strict || !previousId) throw err;
+    const other = (await navigator.mediaDevices.enumerateDevices()).find(
+      (d) => d.kind === "videoinput" && d.deviceId && d.deviceId !== previousId
+    );
+    if (!other) throw err;
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { ...size, deviceId: { exact: other.deviceId } },
+      audio: false,
+    });
+  }
   facing = nextFacing;
   video.srcObject = stream;
+  video.play().catch(() => {}); // iOS doesn't always autoplay a swapped srcObject
 }
 
 window.__sbSetFacing = async (nextFacing) => {
@@ -119,37 +137,43 @@ async function countCameras() {
   }
 }
 
+async function loadGestureModel() {
+  vision = await FilesetResolver.forVisionTasks(WASM_URL);
+  gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: MODEL_URL,
+      delegate: "GPU",
+    },
+    runningMode: "VIDEO",
+    numHands: 2,
+  });
+}
+
 async function init() {
+  // Attached before the camera starts so the first loadeddata can't be
+  // missed. Fires again after every camera switch, so Python can resize.
+  video.addEventListener("loadeddata", async () => {
+    const cameras = await countCameras();
+    window.__sbCamera = { width: video.videoWidth, height: video.videoHeight, cameras };
+    window.dispatchEvent(new CustomEvent("signalbooth:ready", { detail: window.__sbCamera }));
+    if (!running) {
+      running = true;
+      requestAnimationFrame(predictLoop);
+    }
+  });
+
   try {
-    setBootStatus("loading gesture model…");
-    const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-    initSegmenter(vision); // loads alongside; only backgrounds wait for it
-    gestureRecognizer = await GestureRecognizer.createFromOptions(vision, {
-      baseOptions: {
-        modelAssetPath: MODEL_URL,
-        delegate: "GPU",
-      },
-      runningMode: "VIDEO",
-      numHands: 2,
-    });
-
-    // Attached before the camera starts so the first loadeddata can't be
-    // missed. Fires again after every camera switch, so Python can resize.
-    video.addEventListener("loadeddata", async () => {
-      const cameras = await countCameras();
-      window.dispatchEvent(
-        new CustomEvent("signalbooth:ready", {
-          detail: { width: video.videoWidth, height: video.videoHeight, cameras },
-        })
-      );
-      if (!running) {
-        running = true;
-        requestAnimationFrame(predictLoop);
-      }
-    });
-
+    // The camera and the ~10 MB of model download side by side: you see
+    // yourself as soon as the camera's up, and hands join once the model lands.
     setBootStatus("requesting camera…");
-    await startCamera("user");
+    await Promise.all([
+      startCamera("user"),
+      loadGestureModel().catch((err) => {
+        // Without the model there are no gestures, but the camera, the
+        // shutter and the dial all still work.
+        console.error("Signalbooth: gesture model unavailable", err);
+      }),
+    ]);
   } catch (err) {
     console.error("Signalbooth: camera/model init failed", err);
     let message = "Something went wrong starting the camera. Check the console for details.";
@@ -202,8 +226,11 @@ function predictLoop() {
     lastVideoTime = video.currentTime;
     const now = performance.now();
 
-    const result = gestureRecognizer.recognizeForVideo(video, now);
+    const result = gestureRecognizer ? gestureRecognizer.recognizeForVideo(video, now) : {};
 
+    if (window.__sbSegment && vision && window.__sbSegmenterState === "idle") {
+      initSegmenter();
+    }
     if (window.__sbSegment && segmenter) {
       try {
         updateMask(now);

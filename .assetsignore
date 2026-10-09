@@ -1,0 +1,14 @@
+.git
+.github
+.claude
+.superpowers
+.wrangler
+.assetsignore
+.gitignore
+.DS_Store
+node_modules
+docs
+README.md
+wrangler.jsonc
+py/test_*.py
+py/__pycache__
